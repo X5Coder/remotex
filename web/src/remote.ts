@@ -1,4 +1,4 @@
-﻿/**
+/**
  * RemoteX — remote surface (touchpad / mouse / tablet modes).
  *
  * Ported from the v1 prototype (docs/prototype-index.html) with fixes per master.md:
@@ -73,7 +73,8 @@ export class RemoteSurface {
   private H = 1;
   private running = false;
 
-  private S = { down: false, fx: 0, fy: 0, a: 0, cx: 0.5, cy: 0.5, tx: 0.5, ty: 0.5 };
+  // synced=true → host cursor is the authority (snap exactly); false → local drag prediction (lerp)
+  private S = { down: false, fx: 0, fy: 0, a: 0, cx: 0.5, cy: 0.5, tx: 0.5, ty: 0.5, synced: true };
   private ring: { x: number; y: number; p: number } | null = null;
 
   private kbOpen = false;
@@ -208,22 +209,15 @@ export class RemoteSurface {
     }
   }
 
-  /**
-   * Correct the locally-predicted cursor with the agent's true position.
-   * Hard-snap only when badly off; otherwise ease toward it — a hard 10 Hz snap
-   * made the cursor visibly rubber-band back against the user's drag ("بايظ").
-   */
+  /** host cursor is the authority - snap to it exactly (zero lag, zero drift) */
   setCursor(x: number, y: number) {
     const nx = clamp(x, 0, 1), ny = clamp(y, 0, 1);
-    const dist = Math.hypot(nx - this.S.tx, ny - this.S.ty);
-    if (dist > 0.12) {
-      this.S.tx = nx; this.S.ty = ny;
-    } else {
-      this.S.tx += (nx - this.S.tx) * 0.4;
-      this.S.ty += (ny - this.S.ty) * 0.4;
-    }
+    this.S.tx = nx;
+    this.S.ty = ny;
+    this.S.synced = true;
     this.kick();
   }
+
 
   private vidAR = () => {
     if (this.video.videoWidth && this.video.videoHeight) {
@@ -272,10 +266,25 @@ export class RemoteSurface {
     if (!this.running) { this.running = true; requestAnimationFrame(this.tick); }
   }
 
+  /** rect of the video content inside the (possibly letterboxed) screen element — in FULLSCREEN the 16:9 video is letterboxed top/bottom */
+  private contentRect() {
+    const W = this.SW, H = this.SH, ar = this.ar;
+    let cw = W, ch = cw / ar;
+    if (ch > H) { ch = H; cw = ch * ar; }
+    return { ox: (W - cw) / 2, oy: (H - ch) / 2, cw, ch };
+  }
+
   private tick = () => {
-    this.S.cx += (this.S.tx - this.S.cx) * 0.35;
-    this.S.cy += (this.S.ty - this.S.cy) * 0.35;
-    this.cursor.style.transform = `translate3d(${(this.S.cx * this.SW).toFixed(1)}px,${(this.S.cy * this.SH).toFixed(1)}px,0)`;
+    if (this.S.synced) {
+      // host is authoritative — snap exactly, zero lag / zero drift
+      this.S.cx = this.S.tx;
+      this.S.cy = this.S.ty;
+    } else {
+      this.S.cx += (this.S.tx - this.S.cx) * 0.4;
+      this.S.cy += (this.S.ty - this.S.cy) * 0.4;
+    }
+    const cr = this.contentRect();
+    this.cursor.style.transform = `translate3d(${(cr.ox + this.S.cx * cr.cw).toFixed(1)}px,${(cr.oy + this.S.cy * cr.ch).toFixed(1)}px,0)`;
 
     this.ctx.clearRect(0, 0, this.W, this.H);
     this.S.a += ((this.S.down && !this.full ? 1 : 0) - this.S.a) * 0.1;
@@ -348,17 +357,19 @@ export class RemoteSurface {
 
   private onTouchMove = (e: PointerEvent) => {
     if (!this.S.down || e.pointerId !== this.pid) return;
+    this.S.synced = false; // local drag prediction (host echo will re-snap to the truth)
     const rx = e.clientX - this.lx, ry = e.clientY - this.ly;
     this.lx = e.clientX; this.ly = e.clientY;
     this.moved += Math.abs(rx) + Math.abs(ry);
     if (this.moved > 8) window.clearTimeout(this.longTimer ?? undefined);
-    const dx = this.land ? ry : rx, dy = this.land ? -rx : ry;
+    const dx = rx, dy = ry; // land mode no longer rotates the video — same 1:1 mapping everywhere
     this.S.fx += (e.clientX - this.S.fx) * 0.3;
     this.S.fy += (e.clientY - this.S.fy) * 0.3;
     const sp = Math.hypot(rx, ry);
+    const cr = this.contentRect();
     const g = (this.land ? LAND_GAIN : GAIN) * (1 + Math.min(sp / 20, ACCEL));
-    this.S.tx = clamp(this.S.tx + (dx * g) / this.SW, 0, 1);
-    this.S.ty = clamp(this.S.ty + (dy * g) / this.SW, 0, 1);
+    this.S.tx = clamp(this.S.tx + (dx * g) / cr.cw, 0, 1);
+    this.S.ty = clamp(this.S.ty + (dy * g) / cr.ch, 0, 1);
     // coalesced absolute move (spec: touch sends absolute, latest-only, 1 per rAF)
     this.mvPending = { x: this.S.tx, y: this.S.ty };
     if (!this.mvRaf) this.mvRaf = requestAnimationFrame(this.flushMove);
@@ -442,8 +453,8 @@ export class RemoteSurface {
   private clickFx(kind: "l" | "r", x?: number, y?: number) {
     const f = document.createElement("div");
     f.className = "fx" + (kind === "r" ? " r" : "");
-    f.style.left = (x ?? this.S.tx * this.SW) + "px";
-    f.style.top = (y ?? this.S.ty * this.SH) + "px";
+    f.style.left = (x ?? this.contentRect().ox + this.S.tx * this.contentRect().cw) + "px";
+    f.style.top = (y ?? this.contentRect().oy + this.S.ty * this.contentRect().ch) + "px";
     this.screenEl.appendChild(f);
     f.animate(
       [{ transform: "scale(.3)", opacity: 0.9 }, { transform: "scale(4)", opacity: 0 }],
@@ -455,9 +466,10 @@ export class RemoteSurface {
 
   private norm(e: PointerEvent | WheelEvent) {
     const r = this.screenEl.getBoundingClientRect();
+    const c = this.contentRect();
     return {
-      x: clamp((e.clientX - r.left) / r.width, 0, 1),
-      y: clamp((e.clientY - r.top) / r.height, 0, 1),
+      x: clamp((e.clientX - r.left - c.ox) / c.cw, 0, 1),
+      y: clamp((e.clientY - r.top - c.oy) / c.ch, 0, 1),
     };
   }
 
@@ -755,7 +767,8 @@ export class RemoteSurface {
       const w = Math.min(vw - 16, (vh - 16) * this.ar), h = w / this.ar;
       return { left: (vw - w) / 2, top: (vh - h) / 2, w, h, rot: 0 };
     }
-    // land = fullscreen fill: video covers the WHOLE viewport, no rotation
+    // land = fullscreen fill: screen element covers the viewport; the 16:9 video is letterboxed inside it.
+    // Cursor/click/drag mapping uses the video content rect (see contentRect) so coordinates stay 1:1.
     return { left: 0, top: 0, w: vw, h: vh, rot: 0 };
   }
 

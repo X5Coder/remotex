@@ -152,6 +152,9 @@ function stopPower() {
   powerSaveBlockerIds = [];
 }
 
+/** resolution the screencast is actually captured at (physical pixels of the captured monitor) */
+let captureW = 0, captureH = 0;
+
 // ------------------------------------------------------------- video handler --
 function installDisplayCaptureHandlers() {
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
@@ -268,12 +271,24 @@ function registerIpc() {
   ipcMain.handle("screen:cursor", () => {
     const size = driver?.screenSize() ?? { width: 1, height: 1 };
     const pos = driver?.cursorPosition() ?? { x: 0, y: 0 };
-    return { nx: pos.x / Math.max(1, size.width - 1), ny: pos.y / Math.max(1, size.height - 1) };
+    // normalize against the CAPTURED resolution when known — exact 1:1 with the video pixels;
+    // falls back to Electron's DIP-sized primary display otherwise
+    const w = captureW || size.width, h = captureH || size.height;
+    return { nx: pos.x / Math.max(1, w - 1), ny: pos.y / Math.max(1, h - 1) };
   });
 
   ipcMain.handle("platform:info", () => process.platform);
 
   ipcMain.handle("input:inject", (_e, msg: unknown) => { injectInput(msg); });
+
+  ipcMain.handle("capture:dimensions", (_e, dims: unknown) => {
+    const d = dims as { width?: number; height?: number };
+    if (Number.isFinite(d?.width) && Number.isFinite(d?.height) && (d!.width as number) > 0 && (d!.height as number) > 0) {
+      captureW = Math.floor(d!.width as number);
+      captureH = Math.floor(d!.height as number);
+      console.log(`[capture] dimensions reported: ${captureW}x${captureH}`);
+    }
+  });
 
   ipcMain.handle("capture:primary-source", async () => {
     try {

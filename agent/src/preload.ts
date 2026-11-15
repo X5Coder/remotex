@@ -17,6 +17,7 @@ const invokeChannels = [
   "stats:report",
   "rtt:report",
   "capture:primary-source",
+  "capture:dimensions",
   "turn:config",
   "win:minimize",
   "win:close",

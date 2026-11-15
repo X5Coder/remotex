@@ -140,6 +140,18 @@ class HiddenAgent {
       turnCfg = (await bridge.invoke("turn:config")) as typeof turnCfg;
     } catch { turnCfg = null; }
 
+    // 3) report the capture resolution once — used to normalize the cursor 1:1 against the video pixels
+    try {
+      const track = stream.getVideoTracks()[0];
+      const settings = track?.getSettings() ?? {};
+      if (settings.width && settings.height) {
+        void bridge.invoke("capture:dimensions", { width: settings.width, height: settings.height });
+        log(`capture dimensions ${settings.width}x${settings.height}`);
+      }
+    } catch (err) {
+      console.warn("[hidden] could not read capture dimensions:", err);
+    }
+
     // 2) join the room (encrypted SDP; maxUsers=2 → single session)
     const room = joinRoom(
       { appId: APP_ID, password, maxUsers: 2, trickleIce: true, relayConfig: { urls: RELAY_URLS }, ...(turnCfg ? { turnConfig: [turnCfg] } : {}) },
@@ -280,8 +292,8 @@ class HiddenAgent {
       this.fast?.send(encodeFast({ kind: "ping", seq: this.seq.next(), t: Math.floor(performance.now()) })).catch(() => {});
     }, 1000);
 
-    // true-cursor broadcast at 25 Hz when it moved (corrects client prediction)
-    this.cursorTimer = window.setInterval(() => { void this.publishCursor(); }, 40);
+    // true-cursor broadcast at 50 Hz when it moved (corrects client prediction)
+    this.cursorTimer = window.setInterval(() => { void this.publishCursor(); }, 20);
 
     // adaptive bitrate + fps/loss monitoring every 1 s, adjust every 10 s
     this.statsTimer = window.setInterval(() => { void this.sampleStats(); }, 1000);
