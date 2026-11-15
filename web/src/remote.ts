@@ -531,7 +531,13 @@ export class RemoteSurface {
 
   private onMouseMove = (e: PointerEvent) => {
     if (this.mode !== "mouse" || e.pointerType !== "mouse") return;
-    this.mvPending = this.norm(e);
+    const p = this.norm(e);
+    this.mvPending = p;
+    // the OS mouse IS the remote cursor here — map 1:1 and snap the overlay instantly (no prediction lag)
+    this.S.synced = true;
+    this.S.tx = p.x;
+    this.S.ty = p.y;
+    this.kick();
     if (!this.mvRaf) this.mvRaf = requestAnimationFrame(this.flushMove);
   };
 
@@ -873,7 +879,7 @@ export class RemoteSurface {
   private flip(L: { cx: number; cy: number; w: number; h: number; rot: number }, from: typeof L, done?: () => void, ms?: number, o0?: number, o1?: number) {
     const kw = (s: typeof L) => `translate(${(s.cx - L.cx).toFixed(2)}px,${(s.cy - L.cy).toFixed(2)}px) rotate(${s.rot}deg) scale(${(s.w / L.w).toFixed(4)},${(s.h / L.h).toFixed(4)})`;
     if (o0 == null) { o0 = o1 = +this.shade.style.opacity || 0; }
-    const opt: KeyframeAnimationOptions = { duration: ms ?? ANIM_MS, easing: "cubic-bezier(.2,.8,.2,1)", fill: "forwards" };
+    const opt: KeyframeAnimationOptions = { duration: ms ?? ANIM_MS, easing: "cubic-bezier(.32,.72,.25,1)", fill: "forwards" };
     this.anim = this.screenEl.animate([{ transform: kw(from) }, { transform: kw(L) }], opt);
     const sa = this.shade.animate([{ transform: kw(from), opacity: o0 }, { transform: kw(L), opacity: o1 }], opt);
     this.anim.onfinish = () => {
@@ -938,14 +944,17 @@ export class RemoteSurface {
 
   closeFull() {
     if (!this.full || this.anim || this.busy) return;
-    const to = this.stateOfRect(this.wrap.getBoundingClientRect()), L = this.cur!;
+    const wrap = this.wrap.getBoundingClientRect();
+    const to = this.stateOfRect(wrap);
+    const from = this.cur!;
     this.land = false;
     document.body.classList.remove("land");
     this.screenEl.classList.remove("land");
     this.backdrop.classList.remove("show");
     this.SW = to.w; this.SH = to.h;
     this.shade.style.opacity = "0";
-    this.flip(L, L, () => {
+    // real FLIP: from the current fullscreen rect back to the small wrap — cinematic spring-out
+    this.flip(to, from, () => {
       this.full = false;
       this.screenEl.classList.remove("full");
       const s = this.screenEl.style;

@@ -95,7 +95,8 @@ body.land .screen{border:0;border-radius:0}
 body.land .lui{opacity:1;transform:translateX(-50%);pointer-events:auto;transition-delay:.15s}
 body.focus .app{padding:0;justify-content:center}
 body.focus .panel{align-self:center;padding:0;border:0;border-radius:0;background:none;box-shadow:none}
-body.focus .btns, body.focus #hint, body.focus #glow, body.focus #backdrop, body.focus .lui, body.focus #cursor{display:none}
+body.focus .btns, body.focus #hint, body.focus #glow, body.focus #backdrop, body.focus .lui{display:none}
+body.mouse #screen{cursor:none}
 body.focus .screen{border:0;border-radius:0;cursor:default;background:#000}
 body.focus #shade{display:none}
 body.mouse .placeholder{display:none}

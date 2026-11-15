@@ -218,6 +218,7 @@ async function injectInputNow(msg: any): Promise<void> {
       driver.click(msg.button ?? "left", !!msg.double);
       return;
     case "button":
+      if (process.env.REMOTEX_INPUT_LOG) console.log(`[input ${new Date().toISOString().slice(11,19)}] button ${msg.button ?? "left"} ${msg.down ? "down" : "up"}`);
       if (msg.down) driver.buttonDown(msg.button ?? "left");
       else driver.buttonUp(msg.button ?? "left");
       return;
