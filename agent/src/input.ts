@@ -81,6 +81,10 @@ export class RobotDriver implements InputDriver {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       this.robot = require("@jitsi/robotjs");
+      // Use robotjs's OWN coordinate space — GetSystemMetrics + GetCursorPos + moveMouse all live in it,
+      // so normalization is always consistent no matter which DPI awareness the process has.
+      const rs = this.robot.getScreenSize?.();
+      if (rs && rs.width > 0 && rs.height > 0) this.size = { width: rs.width, height: rs.height };
       this.robot.setMouseDelay(0);
       this.robot.setKeyboardDelay(0);
     } catch (err) {

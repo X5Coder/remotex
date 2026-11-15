@@ -269,9 +269,9 @@ function registerIpc() {
   });
 
   ipcMain.handle("screen:bounds", () => {
-    // DIP bounds of the SAME display we capture — matches robotjs DIP coordinates exactly (DPI-agnostic)
-    const d = screen.getPrimaryDisplay();
-    return { x: d.bounds.x, y: d.bounds.y, w: d.bounds.width, h: d.bounds.height };
+    // use the SAME coordinate space robotjs reports — DPI-agnostic
+    const size = driver?.screenSize() ?? { width: 1536, height: 864 };
+    return { x: 0, y: 0, w: size.width, h: size.height };
   });
 
   ipcMain.handle("screen:cursorRaw", () => {
