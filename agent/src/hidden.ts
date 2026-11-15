@@ -131,19 +131,13 @@ class HiddenAgent {
       turnCfg = (await bridge.invoke("turn:config")) as typeof turnCfg;
     } catch { turnCfg = null; }
 
-    // 3) capture dims are captured in the renderer (used by cursor normalization); report them to main too
+    // 3) no need for capture dims — we normalize the cursor against the DISPLAY bounds, not the video,
+    //    so DPI scaling never breaks it (robotjs returns DIP; Electron bounds are DIP)
     try {
       const track = stream.getVideoTracks()[0];
       const settings = track?.getSettings() ?? {};
-      const w = settings.width || Math.round((window.screen.width || 1920) * (window.devicePixelRatio || 1));
-      const h = settings.height || Math.round((window.screen.height || 1080) * (window.devicePixelRatio || 1));
-      this.videoDims = { w, h };
-      void bridge.invoke("capture:dimensions", { width: w, height: h });
-      log(`capture dimensions ${w}x${h}`);
-    } catch (err) {
-      this.videoDims = { w: 1920, h: 1080 };
-      console.warn("[hidden] could not read capture dimensions — assuming 1920x1080:", err);
-    }
+      if (settings.width && settings.height) log(`capture: native physical ${settings.width}x${settings.height}`);
+    } catch { /* optional diagnostic */ }
 
     // 2) join the room (encrypted SDP; maxUsers=2 → single session)
     const room = joinRoom(
@@ -265,9 +259,8 @@ class HiddenAgent {
     try {
       const info = (await bridge.invoke("screen:info")) as { primary: { width: number; height: number }; displays: { id: string; width: number; height: number; primary?: boolean }[] };
       const raw = (await bridge.invoke("screen:cursorRaw")) as { x: number; y: number };
-      // normalize against the actual captured resolution reported by THIS renderer — always consistent with the video pixels
-      const w = this.videoDims.w || 1, h = this.videoDims.h || 1;
-      const nx = clamp01(raw.x / Math.max(1, w - 1)), ny = clamp01(raw.y / Math.max(1, h - 1));
+      const b = (await bridge.invoke("screen:bounds")) as { x: number; y: number; w: number; h: number };
+      const nx = clamp01((raw.x - b.x) / Math.max(1, b.w - 1)), ny = clamp01((raw.y - b.y) / Math.max(1, b.h - 1));
       const platform = String(await bridge.invoke("platform:info"));
       const hello: HelloMessage = makeHello({
         screen: { width: info.primary.width, height: info.primary.height },
@@ -302,16 +295,12 @@ class HiddenAgent {
     this.pingTimer = this.cursorTimer = this.statsTimer = null;
   }
 
-  // video pixel dims captured by THIS renderer — the only coordinate space matching the captured image
-  private videoDims = { w: 0, h: 0 };
-
   private async publishCursor() {
     if (!this.peerId) return;
     try {
       const raw = (await bridge.invoke("screen:cursorRaw")) as { x: number; y: number };
-      // normalize against the actual captured resolution reported by THIS renderer — always consistent with the video pixels
-      const w = this.videoDims.w || 1, h = this.videoDims.h || 1;
-      const nx = clamp01(raw.x / Math.max(1, w - 1)), ny = clamp01(raw.y / Math.max(1, h - 1));
+      const b = (await bridge.invoke("screen:bounds")) as { x: number; y: number; w: number; h: number };
+      const nx = clamp01((raw.x - b.x) / Math.max(1, b.w - 1)), ny = clamp01((raw.y - b.y) / Math.max(1, b.h - 1));
       if (Math.abs(nx - this.lastCursor.x) < 0.0008 && Math.abs(ny - this.lastCursor.y) < 0.0008) return;
       this.lastCursor = { x: nx, y: ny };
       await this.fast?.send(encodeFast({ kind: "cur", seq: this.seq.next(), x: nx, y: ny }));
