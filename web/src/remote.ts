@@ -241,6 +241,7 @@ export class RemoteSurface {
     document.body.classList.toggle("focus", focus);
     document.body.classList.toggle("tablet", this.mode === "tablet");
     document.body.classList.toggle("mouse", this.mode === "mouse");
+    document.body.classList.toggle("land", this.land);
     st.setProperty("--h", vh + "px");
     let sw: number, sh: number;
     if (focus) {
@@ -754,8 +755,8 @@ export class RemoteSurface {
       const w = Math.min(vw - 16, (vh - 16) * this.ar), h = w / this.ar;
       return { left: (vw - w) / 2, top: (vh - h) / 2, w, h, rot: 0 };
     }
-    const w = vh, h = vw;
-    return { left: (vw - w) / 2, top: (vh - h) / 2, w, h, rot: 90 };
+    // land = fullscreen fill: video covers the WHOLE viewport, no rotation
+    return { left: 0, top: 0, w: vw, h: vh, rot: 0 };
   }
 
   private stateOfRect(r: DOMRect) {
@@ -774,7 +775,7 @@ export class RemoteSurface {
     this.SW = t.w; this.SH = t.h;
     const h = this.shade.style;
     h.left = s.left; h.top = s.top; h.width = s.width; h.height = s.height;
-    h.transform = s.transform; h.opacity = t.rot ? "0" : "1";
+    h.transform = s.transform; h.opacity = this.land ? "0" : "1";
   }
 
   private flip(L: { cx: number; cy: number; w: number; h: number; rot: number }, from: typeof L, done?: () => void, ms?: number, o0?: number, o1?: number) {
@@ -828,6 +829,7 @@ export class RemoteSurface {
     const from = this.stateOfRect(this.screenEl.getBoundingClientRect());
     const t = this.target(), L = this.stateOfT(t);
     this.full = true; this.land = false;
+    document.body.classList.remove("land");
     this.place(t);
     this.screenEl.classList.add("full");
     this.backdrop.classList.add("show");
@@ -840,6 +842,7 @@ export class RemoteSurface {
     if (!this.full || this.anim || this.busy) return;
     const to = this.stateOfRect(this.wrap.getBoundingClientRect()), L = this.cur!;
     this.land = false;
+    document.body.classList.remove("land");
     this.screenEl.classList.remove("land");
     this.backdrop.classList.remove("show");
     this.SW = to.w; this.SH = to.h;
@@ -863,6 +866,7 @@ export class RemoteSurface {
       if (this.kbOpen) this.closeKb();
       const back = this.cur!;
       this.land = false;
+      document.body.classList.remove("land");
       this.screenEl.classList.remove("land");
       const tb = this.target(), Lb = this.stateOfT(tb);
       this.place(tb); this.cur = Lb;
@@ -873,6 +877,7 @@ export class RemoteSurface {
     await this.enterBrowserFs();
     const from = this.stateOfT(this.target());
     this.land = true;
+    document.body.classList.add("land");
     this.screenEl.classList.toggle("land", true);
     const t = this.target(), L = this.stateOfT(t);
     this.place(t); this.cur = L;

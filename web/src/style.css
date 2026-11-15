@@ -88,6 +88,11 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;position:fixed;inset:0
 .btn.kb.on{background:linear-gradient(165deg,#566072,#2b3340);color:#fff;border-color:transparent}
 
 body.focus{background:#000}
+body.land{background:#000}
+body.land .btns, body.land #hint, body.land .dock{display:none !important}
+body.land .panel{padding:0;gap:0;border:0;background:none;box-shadow:none;border-radius:0}
+body.land .screen{border:0;border-radius:0}
+body.land .lui{opacity:1;transform:translateX(-50%);pointer-events:auto;transition-delay:.15s}
 body.focus .app{padding:0;justify-content:center}
 body.focus .panel{align-self:center;padding:0;border:0;border-radius:0;background:none;box-shadow:none}
 body.focus .btns, body.focus #hint, body.focus #glow, body.focus #backdrop, body.focus .lui, body.focus #cursor{display:none}
