@@ -80,6 +80,7 @@ class HiddenAgent {
   private pingTimer: number | null = null;
   private cursorTimer: number | null = null;
   private lastCursor = { x: -1, y: -1 };
+  private curPublished = 0;
   private bitrateRung = 0;
   private statsStrikes = { lowFps: 0, loss: 0, good: 0 };
   private started = false;
@@ -295,15 +296,23 @@ class HiddenAgent {
     this.pingTimer = this.cursorTimer = this.statsTimer = null;
   }
 
-  private async publishCursor() {
+  private async publishCursor(force = false) {
     if (!this.peerId) return;
     try {
       const raw = (await bridge.invoke("screen:cursorRaw")) as { x: number; y: number };
       const b = (await bridge.invoke("screen:bounds")) as { x: number; y: number; w: number; h: number };
       const nx = clamp01((raw.x - b.x) / Math.max(1, b.w - 1)), ny = clamp01((raw.y - b.y) / Math.max(1, b.h - 1));
-      if (Math.abs(nx - this.lastCursor.x) < 0.0008 && Math.abs(ny - this.lastCursor.y) < 0.0008) return;
+      if (!force && Math.abs(nx - this.lastCursor.x) < 0.0008 && Math.abs(ny - this.lastCursor.y) < 0.0008) return;
       this.lastCursor = { x: nx, y: ny };
-      await this.fast?.send(encodeFast({ kind: "cur", seq: this.seq.next(), x: nx, y: ny }));
+      const seq = this.seq.next();
+      // LINE 1 — binary fast channel (7 bytes)
+      await this.fast?.send(encodeFast({ kind: "cur", seq, x: nx, y: ny }));
+      // LINE 2 — identical beacon on the reliable JSON ctl channel, SAME seq;
+      // the client dedups by seq, so whichever arrives first wins and the other is dropped.
+      // If one line stalls, the other compensates.
+      await this.ctl?.send(encodeCtl({ kind: "cur", x: nx, y: ny, seq }));
+      this.curPublished++;
+      if (this.curPublished === 1) log("cursor dual-line beacons active (line1: fast binary + line2: ctl JSON)");
     } catch { /* ignore transient */ }
   }
 
@@ -387,6 +396,11 @@ class HiddenAgent {
       case "paste":
         await bridge.invoke("input:inject", { kind: "paste", text: msg.text });
         return;
+      case "curping": {
+        // client watchdog: no cur beacon for a while — reply IMMEDIATELY on both lines (force, no dedup)
+        await this.publishCursor(true);
+        return;
+      }
       case "bye":
         await bridge.invoke("session:ended-by-user");
         return;

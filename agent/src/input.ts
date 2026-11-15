@@ -155,7 +155,7 @@ export class RobotDriver implements InputDriver {
   typeText(text: string) {
     if (!this.robot) return;
     // non-ASCII → clipboard paste (Arabic, emoji) — never per-key typing
-    if (!/^[\x20-\x7E\n\t]*$/.test(text)) { void this.pasteText(text); return; }
+    if (!/^[\x20-\x7E\n\t]*$/.test(text)) { console.log(`[input] typeText non-ascii (${text.length} chars) -> clipboard paste`); void this.pasteText(text); return; }
     try { this.robot.typeString(text); } catch (err) { console.error("[input] typeText failed:", err); }
   }
 

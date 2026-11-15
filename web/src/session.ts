@@ -1,4 +1,4 @@
-﻿/**
+/**
  * RemoteX â€” WebRTC session (web client side).
  *
  * Signaling: Trystero (Nostr by default). The password derives the AES-256-GCM
@@ -9,9 +9,12 @@
  * seat; anyone else gets "room-full". The agent additionally refuses any command
  * coming from a peer other than the first one.
  *
- * Channel reality (trystero >= 0.27): ONE ordered, reliable data channel.
- * We therefore send ONE move per rAF (latest only) â€” see remote.ts â€” which makes
- * app-level unreliable delivery unnecessary for the cursor.
+ * Channel reality (trystero >= 0.27): ONE ordered, reliable data channel shared by the
+ * binary `fast` actions and the JSON `ctl` actions. The cursor beacon (`cur`) is
+ * broadcast on BOTH lines with one shared 16-bit sequence number - if one line stalls
+ * or drops a frame, the other line delivers it and the duplicate is dropped here.
+ * A 1 Hz watchdog asks the agent to force-republish the cursor whenever no beacon
+ * has arrived on either line within ~400 ms - if one line fails, the other compensates.
  */
 import { joinRoom } from "trystero";
 import {
@@ -23,6 +26,7 @@ import {
   isPing,
   decodeCtl,
   packCtl,
+  encodeCtl,
   ChunkAssembler,
   isVersionMismatch,
   type MouseButton,
@@ -89,6 +93,9 @@ export class Session implements CommandSink {
   private room: Room | null = null;
   private fast: { send: (d: Uint8Array) => Promise<void>; onMessage: (h: (d: unknown, ctx: { peerId: string }) => void) => () => void } | null = null;
   private ctl: { send: (d: string) => Promise<void>; onMessage: (h: (d: unknown, ctx: { peerId: string }) => void) => () => void } | null = null;
+  private lastCurAt = 0;
+  private curLine1 = 0;
+  private curLine2 = 0;
   private seq = new SeqCounter();
   private tracker = new SeqTracker();
   private assembler = new ChunkAssembler();
@@ -158,7 +165,10 @@ export class Session implements CommandSink {
       // pong: echo the exact 7 bytes so the agent can measure RTT
       if (msg.kind === "ping" && isPing(bytes)) { void this.fast?.send(bytes).catch(() => {}); return; }
       if (msg.kind === "cur") {
-        if (!this.tracker.accept(msg.seq)) return; // drop stale cursor packets
+        if (!this.tracker.accept(msg.seq)) return; // drop stale cursor packets (fast line)
+        this.curLine1++;
+        if (this.curLine1 === 1) console.log("[session] cursor line1 alive (binary fast channel)");
+        this.lastCurAt = Date.now();
         this.onCur?.(msg.x, msg.y);
       }
     });
@@ -234,7 +244,15 @@ export class Session implements CommandSink {
   private async handleCtl(msg: import("@remotex/protocol").CtlMessage) {
     const cb = this.opts.cb;
     switch (msg.kind) {
+      case "cur": // LINE 2 of the sync path - the same beacon arriving on the JSON channel
+        if (!this.tracker.accept(msg.seq)) return; // already delivered on the fast line - drop duplicate
+        this.curLine2++;
+        if (this.curLine2 === 1) console.log("[session] cursor line2 alive (JSON ctl channel)");
+        this.lastCurAt = Date.now();
+        this.onCur?.(msg.x, msg.y);
+        return;
       case "hello":
+        this.lastCurAt = Date.now(); // seeds the watchdog baseline (agent sends cur 50 Hz right after)
         if (isVersionMismatch(msg)) cb.onVersionMismatch();
         else cb.onHello(msg);
         return;
@@ -273,6 +291,11 @@ export class Session implements CommandSink {
         const ms = await this.room.ping(this.peerId);
         this.opts.cb.onRtt(Math.round(ms));
       } catch { /* ignore single ping failures */ }
+      // watchdog line: if neither the fast nor the ctl cursor beacon has landed for ~400 ms,
+      // force the agent to republish the cursor immediately on both lines
+      if (this.peerId && this.lastCurAt && Date.now() - this.lastCurAt > 400) {
+        void this.ctl?.send(encodeCtl({ kind: "curping" })).catch(() => {});
+      }
       this.rttTimer = window.setTimeout(() => void tick(), 1000);
     };
     void tick();

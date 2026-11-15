@@ -96,8 +96,6 @@ export class RemoteSurface {
   private tStart = 0;
   private onScreen = false;
   private longTimer: number | null = null;
-  private clickTimer: number | null = null;
-  private lastTapAt = 0;
   private lastRemoteClip: string | null = null;
 
   private tp = new Map<number, { x: number; y: number; sx: number; sy: number }>();
@@ -344,7 +342,7 @@ export class RemoteSurface {
     this.S.down = true;
     this.S.fx = e.clientX; this.S.fy = e.clientY;
     this.hint.classList.add("hide");
-    // long-press = same cycle as double-tap: small -> focus -> landscape -> small
+    // long-press (finger held still) = fullscreen cycle: small -> focus -> landscape -> small
     window.clearTimeout(this.longTimer ?? undefined);
     this.longTimer = window.setTimeout(() => {
       if (this.pid === e.pointerId && this.moved < 8) {
@@ -382,12 +380,14 @@ export class RemoteSurface {
     if (this.mvPending) { this.sink.move(+this.mvPending.x.toFixed(4), +this.mvPending.y.toFixed(4)); this.mvPending = null; }
   };
 
-  /* ---------- إيماءات اللمس: نقرة = ضغطة (بعد مهلة قصيرة للتمييز)، نقرتان = تكبير فقط (لا يصل أي شيء لـ Windows) ---------- */
+  /* ---------- tap = click instantly, double-tap = two quick clicks (Windows folds them into a double-click) - just like a touchpad ---------- */
+  /* ---------- نقرة = كليك فوري، نقرتان = كليكين متتاليين — تماماً مثل الباد في ويندوز ---------- */
 
+  /** long-press cycle: small -> focus (portrait) -> landscape (fullscreen) -> small */
   private expandCycle = () => {
-    if (!this.full) { this.openFull(); return; }
-    if (!this.land) { void this.rotateFull(); return; }
-    this.closeFull();
+    if (!this.full) { this.openFull(); return; }   // small -> focus
+    if (!this.land) { void this.rotateFull(); return; } // focus -> landscape (fullscreen)
+    this.closeFull();                               // landscape -> small (cycle complete)
   };
 
   private fireClick(button: MouseButton = "left") {
@@ -406,26 +406,14 @@ export class RemoteSurface {
     this.kick();
     if (!wasCursorDown || !isTap || e.type !== "pointerup") return;
 
-    // taps ON THE VIDEO: disambiguate single (click) vs double (expand gesture only — never reaches Windows)
+    // taps ON THE VIDEO behave like a Windows touchpad: every tap is a REAL click,
+    // so two taps inside the OS double-click time become a double-click automatically
     if (this.onScreen) {
-      const now = performance.now();
-      if (now - this.lastTapAt < 280) {
-        window.clearTimeout(this.clickTimer ?? undefined);
-        this.clickTimer = null;
-        this.lastTapAt = 0;
-        this.expandCycle();
-        return;
-      }
-      this.lastTapAt = now;
-      window.clearTimeout(this.clickTimer ?? undefined);
-      this.clickTimer = window.setTimeout(() => {
-        this.clickTimer = null;
-        this.fireClick("left");
-      }, 230);
+      this.fireClick("left");
       return;
     }
 
-    // taps elsewhere (padding/hint zone) — intentionally does NOTHING to the host
+    // taps elsewhere (padding/hint zone) - intentionally does NOTHING to the host
     return;
   };
 
@@ -503,7 +491,7 @@ export class RemoteSurface {
   };
 
   private onDocKeydown = (e: KeyboardEvent) => {
-    if (this.mode === "touch" || e.target === this.kbInput) return;
+    if (e.target === this.kbInput) return; // hidden input owns the keyboard while it is focused
     if (["Shift", "Control", "Alt", "Meta", "AltGraph", "CapsLock"].includes(e.key)) return;
     const k = e.key.toLowerCase();
     const cmd = e.ctrlKey || e.metaKey;
@@ -517,13 +505,13 @@ export class RemoteSurface {
 
   // physical key release
   private _keyUp = (e: KeyboardEvent) => {
-    if (this.mode === "touch" || e.target === this.kbInput) return;
+    if (e.target === this.kbInput) return; // hidden input owns the keyboard while it is focused
     const mods = { ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey };
     this.sink.key(e.code, e.key.toLowerCase(), false, mods);
   };
 
   private onDocPaste = (e: ClipboardEvent) => {
-    if (this.mode === "touch" || e.target === this.kbInput) return;
+    if (e.target === this.kbInput) return; // hidden input owns the keyboard while it is focused
     const text = e.clipboardData ? e.clipboardData.getData("text") : "";
     e.preventDefault();
     if (text) this.sink.paste(text);
@@ -740,12 +728,35 @@ export class RemoteSurface {
   };
 
   private onKbKeydown = (e: KeyboardEvent) => {
+    const mods = { ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey };
+    const k = e.key.toLowerCase();
     if (e.key === "Enter") {
       e.preventDefault();
-      this.sink.key("Enter", "enter", true, { ctrl: false, alt: false, shift: false, meta: false });
-      this.sink.key("Enter", "enter", false, { ctrl: false, alt: false, shift: false, meta: false });
+      this.sink.key("Enter", "enter", true, mods);
+      this.sink.key("Enter", "enter", false, mods);
       this.kbInput.value = "";
       this.prev = "";
+      return;
+    }
+    // Backspace (plain or word-delete) is delivered through the input-diff — never double it up here
+    if (e.code === "Backspace") return;
+    // Ctrl/Cmd+V without Alt: let the native paste event fire so we can mirror the phone clipboard
+    const cmd = e.ctrlKey || e.metaKey || e.altKey;
+    if (cmd && k === "v" && !e.altKey) return;
+    const isFKey = /^F([1-9]|1[0-2])$/.test(e.code);
+    const FUNCTIONAL = new Set([
+      "Tab", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+      "Home", "End", "Delete", "PageUp", "PageDown", "Insert",
+    ]);
+    // pure functional keys (Tab/arrows/…) are forwarded with preventDefault, so the input never
+    // mutates and the diff stays silent — the host is the single editor of those keys.
+    // Ctrl/Alt/Meta + single letter/digit shortcuts go straight to the host.
+    let forward = isFKey || FUNCTIONAL.has(e.code);
+    if (cmd && /^[a-z0-9]$/.test(k) && k !== "v") forward = true;
+    if (forward) {
+      e.preventDefault();
+      this.sink.key(e.code, k, true, mods);
+      this.sink.key(e.code, k, false, mods);
     }
   };
 

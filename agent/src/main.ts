@@ -214,9 +214,11 @@ function injectInput(msg: any): void {
       else driver.buttonUp(msg.button ?? "left");
       return;
     case "key":
+      if (process.env.REMOTEX_INPUT_LOG) console.log(`[input ${new Date().toISOString().slice(11,19)}] key ${msg.code} down=${!!msg.down}`);
       driver.key(String(msg.code ?? ""), String(msg.key ?? ""), !!msg.down, msg.mods ?? { ctrl: false, alt: false, shift: false, meta: false });
       return;
     case "text":
+      if (process.env.REMOTEX_INPUT_LOG) console.log(`[input ${new Date().toISOString().slice(11,19)}] text ${JSON.stringify(String(msg.text ?? ""))}`);
       lastAgentClipboardWrite = Date.now();
       driver.typeText(String(msg.text ?? ""));
       return;

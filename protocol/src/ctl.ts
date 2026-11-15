@@ -57,6 +57,27 @@ export interface ClipboardMessage {
   text: string;
 }
 
+/**
+ * Redundant cursor beacon — the SECOND LINE for cursor sync.
+ * The same physical position is broadcast on the binary fast channel (7-byte `cur`)
+ * AND here on the JSON ctl channel. Both carry the SAME 16-bit sequence number,
+ * so whichever frame reaches the client first wins and the other is dropped
+ * as a duplicate. If one path is lost/delayed, the other compensates.
+ */
+export interface CurSyncMessage {
+  kind: "cur";
+  /** normalized 0..1 of the primary screen */
+  x: number;
+  y: number;
+  /** 16-bit wrap sequence shared with the binary fast channel */
+  seq: number;
+}
+
+/** Client → agent watchdog request: "no cur beacon recently — send one NOW on both lines". */
+export interface CurPingMessage {
+  kind: "curping";
+}
+
 export interface ByeMessage {
   kind: "bye";
 }
@@ -89,7 +110,9 @@ export type CtlMessage =
   | PasteMessage
   | ClipboardMessage
   | ByeMessage
-  | ChunkMessage;
+  | ChunkMessage
+  | CurSyncMessage
+  | CurPingMessage;
 
 const BUTTONS: readonly MouseButton[] = ["left", "middle", "right"];
 const isButton = (v: unknown): v is MouseButton => typeof v === "string" && BUTTONS.includes(v as MouseButton);
@@ -161,6 +184,14 @@ export function decodeCtl(input: string | unknown): CtlMessage {
     case "clipboard":
       if (!isStr(m.text, MAX_TEXT)) throw new Error("clipboard.text missing or too large");
       return { kind: "clipboard", text: m.text };
+    case "cur": {
+      if (!isNorm(m.x) || !isNorm(m.y)) throw new Error("cur.x/y must be normalized 0..1");
+      if (typeof m.seq !== "number" || !Number.isInteger(m.seq) || m.seq < 0 || m.seq > 0xffff)
+        throw new Error("cur.seq must be an integer 0..65535");
+      return { kind: "cur", x: m.x, y: m.y, seq: m.seq };
+    }
+    case "curping":
+      return { kind: "curping" };
     case "bye":
       return { kind: "bye" };
     case "chunk": {

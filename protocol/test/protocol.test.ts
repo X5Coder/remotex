@@ -136,6 +136,18 @@ test("ctl: text/paste/clipboard round trip; Arabic + emoji survive", () => {
   }
 });
 
+test("ctl: cur beacon + curping round trip; bad payloads rejected", () => {
+  const cur: CtlMessage = { kind: "cur", x: 0.25, y: 0.75, seq: 4242 };
+  assert.deepEqual(decodeCtl(encodeCtl(cur)), cur);
+  assert.deepEqual(decodeCtl({ kind: "curping" }), { kind: "curping" });
+  assert.throws(() => decodeCtl({ kind: "cur", x: 1.5, y: 0.5, seq: 1 }));
+  assert.throws(() => decodeCtl({ kind: "cur", x: 0.5, y: 0.5, seq: 70000 }));
+  assert.throws(() => decodeCtl({ kind: "cur", x: 0.5, y: 0.5, seq: 1.5 }));
+  // boundary: seq wraps at 65535
+  const edge: CtlMessage = { kind: "cur", x: 0, y: 1, seq: 65535 };
+  assert.deepEqual(decodeCtl(encodeCtl(edge)), edge);
+});
+
 test("ctl: bye round trip, unknown kind rejected", () => {
   assert.deepEqual(decodeCtl({ kind: "bye" }), { kind: "bye" });
   assert.throws(() => decodeCtl({ kind: "definitely-not-a-kind" }));
