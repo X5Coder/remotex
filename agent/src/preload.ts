@@ -13,6 +13,7 @@ const invokeChannels = [
   "screen:info",
   "screen:cursor",
   "screen:cursorRaw",
+  "screen:bounds",
   "platform:info",
   "input:inject",
   "stats:report",

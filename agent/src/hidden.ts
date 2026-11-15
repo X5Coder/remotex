@@ -140,7 +140,7 @@ class HiddenAgent {
       turnCfg = (await bridge.invoke("turn:config")) as typeof turnCfg;
     } catch { turnCfg = null; }
 
-    // 3) report the capture resolution once — used to normalize the cursor 1:1 against the video pixels
+    // 3) no capture dims needed for cursor — Electron's DIP bounds give dip space; keep them only for stats log
     try {
       const track = stream.getVideoTracks()[0];
       const settings = track?.getSettings() ?? {};
@@ -273,8 +273,8 @@ class HiddenAgent {
     try {
       const info = (await bridge.invoke("screen:info")) as { primary: { width: number; height: number }; displays: { id: string; width: number; height: number; primary?: boolean }[] };
       const raw = (await bridge.invoke("screen:cursorRaw")) as { x: number; y: number };
-      const vw = this.videoDims.w || info.primary.width, vh = this.videoDims.h || info.primary.height;
-      const nx = clamp01(raw.x / Math.max(1, vw - 1)), ny = clamp01(raw.y / Math.max(1, vh - 1));
+      const b = (await bridge.invoke("screen:bounds")) as { x: number; y: number; w: number; h: number };
+      const nx = clamp01((raw.x - b.x) / Math.max(1, b.w - 1)), ny = clamp01((raw.y - b.y) / Math.max(1, b.h - 1));
       const platform = String(await bridge.invoke("platform:info"));
       const hello: HelloMessage = makeHello({
         screen: { width: info.primary.width, height: info.primary.height },
@@ -316,8 +316,8 @@ class HiddenAgent {
     if (!this.peerId) return;
     try {
       const raw = (await bridge.invoke("screen:cursorRaw")) as { x: number; y: number };
-      const w = this.videoDims.w || 1, h = this.videoDims.h || 1;
-      const nx = clamp01(raw.x / Math.max(1, w - 1)), ny = clamp01(raw.y / Math.max(1, h - 1));
+      const b = (await bridge.invoke("screen:bounds")) as { x: number; y: number; w: number; h: number };
+      const nx = clamp01((raw.x - b.x) / Math.max(1, b.w - 1)), ny = clamp01((raw.y - b.y) / Math.max(1, b.h - 1));
       if (Math.abs(nx - this.lastCursor.x) < 0.0008 && Math.abs(ny - this.lastCursor.y) < 0.0008) return;
       this.lastCursor = { x: nx, y: ny };
       await this.fast?.send(encodeFast({ kind: "cur", seq: this.seq.next(), x: nx, y: ny }));

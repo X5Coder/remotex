@@ -268,6 +268,12 @@ function registerIpc() {
     return { primary: { width: primary.size.width, height: primary.size.height }, displays };
   });
 
+  ipcMain.handle("screen:bounds", () => {
+    // DIP bounds of the SAME display we capture — matches robotjs DIP coordinates exactly (DPI-agnostic)
+    const d = screen.getPrimaryDisplay();
+    return { x: d.bounds.x, y: d.bounds.y, w: d.bounds.width, h: d.bounds.height };
+  });
+
   ipcMain.handle("screen:cursorRaw", () => {
     const pos = driver?.cursorPosition() ?? { x: 0, y: 0 };
     return { x: pos.x, y: pos.y };

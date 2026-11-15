@@ -126,3 +126,5 @@ body.tablet .dock{display:flex}
 .disconnect svg{width:20px;height:20px}
 .disconnect:active{transform:scale(.92)}
 body.focus .disconnect{background:rgba(255,255,255,.10);border-color:rgba(255,255,255,.32)}
+
+.buildMark{position:absolute;bottom:10px;left:0;right:0;text-align:center;font-size:11px;color:#a4adbb;letter-spacing:1px;pointer-events:none}
