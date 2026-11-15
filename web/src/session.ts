@@ -78,6 +78,7 @@ export interface SessionCallbacks {
   onPhase(phase: SessionPhase, reason?: string): void;
   onStream(stream: MediaStream): void;
   onHello(hello: HelloMessage): void;
+  /** RTT in ms — UI layer may ignore it (video overlay is gone); kept mandatory for future overlay-free HUD */
   onRtt(ms: number): void;
   onClipboard(text: string): void;
   /** true when the remote said the version is mismatched (agent asks user to update) */

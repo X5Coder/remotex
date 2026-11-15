@@ -1,4 +1,4 @@
-/**
+﻿/**
  * RemoteX — remote surface (touchpad / mouse / tablet modes).
  *
  * Ported from the v1 prototype (docs/prototype-index.html) with fixes per master.md:
@@ -95,6 +95,9 @@ export class RemoteSurface {
   private tStart = 0;
   private onScreen = false;
   private longTimer: number | null = null;
+  private clickTimer: number | null = null;
+  private lastTapAt = 0;
+  private lastRemoteClip: string | null = null;
 
   private tp = new Map<number, { x: number; y: number; sx: number; sy: number }>();
   private tDrag = false;
@@ -331,14 +334,12 @@ export class RemoteSurface {
     this.S.down = true;
     this.S.fx = e.clientX; this.S.fy = e.clientY;
     this.hint.classList.add("hide");
-    // long-press = expand/collapse toggle
+    // long-press = same cycle as double-tap: small -> focus -> landscape -> small
     window.clearTimeout(this.longTimer ?? undefined);
     this.longTimer = window.setTimeout(() => {
       if (this.pid === e.pointerId && this.moved < 8) {
         try { navigator.vibrate?.(20); } catch { /* no haptics */ }
-        if (this.full && this.land) { /* already in landscape — handled by exit button */ }
-        else if (this.full) void this.rotateFull();   // portrait focus -> landscape
-        else this.openFull();                          // small -> portrait focus
+        this.expandCycle();
       }
     }, LONG_PRESS_MS);
     this.kick();
@@ -369,6 +370,20 @@ export class RemoteSurface {
     if (this.mvPending) { this.sink.move(+this.mvPending.x.toFixed(4), +this.mvPending.y.toFixed(4)); this.mvPending = null; }
   };
 
+  /* ---------- إيماءات اللمس: نقرة = ضغطة (بعد مهلة قصيرة للتمييز)، نقرتان = تكبير فقط (لا يصل أي شيء لـ Windows) ---------- */
+
+  private expandCycle = () => {
+    if (!this.full) { this.openFull(); return; }
+    if (!this.land) { void this.rotateFull(); return; }
+    this.closeFull();
+  };
+
+  private fireClick(button: MouseButton = "left") {
+    this.ring = { x: this.S.fx, y: this.S.fy, p: 0 };
+    this.clickFx("l");
+    this.sink.pointer("click", button, +this.S.tx.toFixed(4), +this.S.ty.toFixed(4));
+  }
+
   private onUp = (e: PointerEvent) => {
     if (e.pointerId !== this.pid) return;
     window.clearTimeout(this.longTimer ?? undefined);
@@ -378,11 +393,28 @@ export class RemoteSurface {
     this.S.down = false;
     this.kick();
     if (!wasCursorDown || !isTap || e.type !== "pointerup") return;
-    // IMMEDIATE click — no tap delay (spec: OS merges double clicks)
-    const button: MouseButton = "left";
-    this.ring = { x: e.clientX, y: e.clientY, p: 0 };
-    this.clickFx("l");
-    this.sink.pointer("click", button, +this.S.tx.toFixed(4), +this.S.ty.toFixed(4));
+
+    // taps ON THE VIDEO: disambiguate single (click) vs double (expand gesture only — never reaches Windows)
+    if (this.onScreen) {
+      const now = performance.now();
+      if (now - this.lastTapAt < 280) {
+        window.clearTimeout(this.clickTimer ?? undefined);
+        this.clickTimer = null;
+        this.lastTapAt = 0;
+        this.expandCycle();
+        return;
+      }
+      this.lastTapAt = now;
+      window.clearTimeout(this.clickTimer ?? undefined);
+      this.clickTimer = window.setTimeout(() => {
+        this.clickTimer = null;
+        this.fireClick("left");
+      }, 230);
+      return;
+    }
+
+    // taps elsewhere (padding/hint zone) — intentionally does NOTHING to the host
+    return;
   };
 
   /* ---------- hold buttons ---------- */
@@ -580,9 +612,13 @@ export class RemoteSurface {
   };
 
   handleRemoteClipboard = async (text: string) => {
+    this.lastRemoteClip = text; // keep as offline-paste fallback for insecure origins
     const ok = await this.writeClip(text);
-    if (ok) this.toast("Copied to device clipboard");
-    else this.toast("Tap to copy to device clipboard", () => void this.writeClip(text).then((k) => this.toast(k ? "Copied to device clipboard" : "Copy failed")));
+    const preview = text.length > 48 ? text.slice(0, 48) + "…" : text;
+    if (ok) this.toast(`Copied: ${preview}`);
+    else this.toast("Tap to copy to device clipboard", () =>
+      void this.writeClip(this.lastRemoteClip!).then((k) => this.toast(k ? "Copied to device clipboard" : "Copy failed"))
+    );
   };
 
   private legacyCopy(text: string): boolean {
@@ -611,11 +647,19 @@ export class RemoteSurface {
       if (!navigator.clipboard?.readText) throw new Error("no clipboard api");
       text = await navigator.clipboard.readText();
     } catch {
-      this.toast("Clipboard blocked here. Use your keyboard's clipboard key.");
-      if (!this.kbOpen) this.openKb();
-      return;
+      if (this.lastRemoteClip) {
+        // fallback: paste the last text the PC copied over the wire
+        text = this.lastRemoteClip;
+      } else {
+        this.toast("Clipboard blocked here. Use your keyboard's clipboard key.");
+        if (!this.kbOpen) this.openKb();
+        return;
+      }
     }
-    if (!text) { this.toast("Clipboard is empty"); return; }
+    if (!text) {
+      if (this.lastRemoteClip) text = this.lastRemoteClip;
+      else { this.toast("Clipboard is empty"); return; }
+    }
     this.sink.paste(text);
     this.toast("Pasted to computer");
   };

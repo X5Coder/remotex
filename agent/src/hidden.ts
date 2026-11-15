@@ -280,8 +280,8 @@ class HiddenAgent {
       this.fast?.send(encodeFast({ kind: "ping", seq: this.seq.next(), t: Math.floor(performance.now()) })).catch(() => {});
     }, 1000);
 
-    // true-cursor broadcast at 10 Hz when it moved (corrects client prediction)
-    this.cursorTimer = window.setInterval(() => { void this.publishCursor(); }, 100);
+    // true-cursor broadcast at 25 Hz when it moved (corrects client prediction)
+    this.cursorTimer = window.setInterval(() => { void this.publishCursor(); }, 40);
 
     // adaptive bitrate + fps/loss monitoring every 1 s, adjust every 10 s
     this.statsTimer = window.setInterval(() => { void this.sampleStats(); }, 1000);
@@ -299,7 +299,7 @@ class HiddenAgent {
     try {
       const cur = (await bridge.invoke("screen:cursor")) as { nx: number; ny: number };
       const nx = clamp01(cur.nx), ny = clamp01(cur.ny);
-      if (Math.abs(nx - this.lastCursor.x) < 0.001 && Math.abs(ny - this.lastCursor.y) < 0.001) return;
+      if (Math.abs(nx - this.lastCursor.x) < 0.0008 && Math.abs(ny - this.lastCursor.y) < 0.0008) return;
       this.lastCursor = { x: nx, y: ny };
       await this.fast?.send(encodeFast({ kind: "cur", seq: this.seq.next(), x: nx, y: ny }));
     } catch { /* ignore transient */ }
@@ -369,13 +369,11 @@ class HiddenAgent {
         return;
       }
       case "click": {
-        await this.injectAbs(msg.x, msg.y);
-        await bridge.invoke("input:inject", { kind: "click", button: msg.button, double: false });
+        await bridge.invoke("input:inject", { kind: "click", button: msg.button, x: msg.x, y: msg.y, double: false });
         return;
       }
       case "dblclick": {
-        await this.injectAbs(msg.x, msg.y);
-        await bridge.invoke("input:inject", { kind: "click", button: msg.button, double: true });
+        await bridge.invoke("input:inject", { kind: "click", button: msg.button, x: msg.x, y: msg.y, double: true });
         return;
       }
       case "key":

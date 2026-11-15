@@ -10,8 +10,6 @@ const $ = (id: string) => document.getElementById(id)!;
 
 const appEl = $("app");
 const dockEl = $("dock");
-const rttEl = $("rtt");
-const disconnectBtn = $("disconnectBtn");
 const toastEl = $("toast");
 
 let remote: RemoteSurface | null = null;
@@ -73,11 +71,11 @@ function startSession(roomId: string, password: string) {
       onStream(stream) {
         remote?.setStream(stream);
       },
-      onRtt(ms) {
-        rttEl.textContent = `RTT ${ms} ms`;
-      },
+
+      onRtt(_ms) { /* overlay removed — RTT kept internal for the adaptive bitrate ladder */ },
       onHello(hello) {
         toast(`Connected — ${hello.screen.width}×${hello.screen.height}`);
+        remote?.setCursor(hello.cursor.x, hello.cursor.y); // sync phone cursor to the host cursor immediately
       },
       onClipboard(text) {
         void remote?.handleRemoteClipboard(text);
@@ -95,8 +93,6 @@ function enterRemote() {
   inRemote = true;
   connect.hide();
   appEl.hidden = false;
-  rttEl.hidden = false;
-  disconnectBtn.hidden = false;
   remote = new RemoteSurface({ sink: session! });
   dockEl.hidden = remote.device !== "tablet";
   session!.setCursorCorrector((x, y) => remote?.setCursor(x, y));
@@ -113,18 +109,10 @@ function leaveRemote() {
   remote = null;
   appEl.hidden = true;
   dockEl.hidden = true;
-  rttEl.hidden = true;
-  disconnectBtn.hidden = true;
   connect.show();
   connect.reset();
 }
 
-disconnectBtn.addEventListener("click", () => {
-  const s = session;
-  leaveRemote(); // UI first — immediate feedback
-  void s?.stop();
-  toast("Disconnected");
-});
-
+// no floating disconnect button on the video — end the session from the RemoteX window's "Stop session"
 document.addEventListener("fullscreenchange", () => remote?.onFullscreenChange());
 document.addEventListener("webkitfullscreenchange", () => remote?.onFullscreenChange());

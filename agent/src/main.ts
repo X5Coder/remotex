@@ -198,10 +198,12 @@ function injectInput(msg: any): void {
   if (!driver) return;
   switch (msg?.kind) {
     case "move":
+      if (process.env.REMOTEX_INPUT_LOG) console.log(`[input ${new Date().toISOString().slice(11,19)}] move x=${Number(msg.x ?? 0).toFixed(4)} y=${Number(msg.y ?? 0).toFixed(4)}`);
       driver.move(Number(msg.x) || 0, Number(msg.y) || 0);
       return;
     case "click":
-      driver.move(Number(msg.x) || 0, Number(msg.y) || 0);
+      if (process.env.REMOTEX_INPUT_LOG) console.log(`[input ${new Date().toISOString().slice(11,19)}] click ${msg.button ?? "left"}${msg.double ? " double" : ""} at (${Number(msg.x ?? 0).toFixed(4)}, ${Number(msg.y ?? 0).toFixed(4)})`);
+      if (Number.isFinite(Number(msg.x)) && Number.isFinite(Number(msg.y))) driver.move(Number(msg.x), Number(msg.y));
       driver.click(msg.button ?? "left", !!msg.double);
       return;
     case "button":
@@ -217,6 +219,7 @@ function injectInput(msg: any): void {
       return;
     case "paste":
       lastAgentClipboardWrite = Date.now();
+      console.log("[input] paste from client:", String(msg.text ?? "").length, "chars");
       void driver.pasteText(String(msg.text ?? ""));
       return;
     case "reset":
