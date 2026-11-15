@@ -193,6 +193,17 @@ export class RemoteSurface {
     this.fit();
   }
 
+  /**
+   * Auto-activate the fullscreen (land) mode right after a successful connect on touch devices.
+   * The site itself enters fullscreen — no gesture needed. Exits only via the on-screen X button.
+   */
+  autoEnterFullscreen() {
+    if (this.mode !== "touch" || this.full) return;
+    this.openFull();
+    // let the focus FLIP settle (340ms), then widen into land fullscreen — same battle-tested path X uses in reverse
+    window.setTimeout(() => { if (!this.land) void this.rotateFull(); }, 620);
+  }
+
   detach() {
     for (const [t, ev, fn, o] of this.boundHandlers) t.removeEventListener(ev, fn, o);
     this.boundHandlers = [];
@@ -451,6 +462,12 @@ export class RemoteSurface {
 
     // taps ON THE VIDEO never click. A DOUBLE-TAP on the video cycles focus mode
     // (small -> focus -> landscape -> small) - exactly like the original prototype gesture.
+    // taps ON THE VIDEO inside FULLSCREEN = a normal click (two fast taps become a double-click).
+    // In focus/small the video taps stay silent; a double-tap there widens to fullscreen via the cycle.
+    if (this.onScreen && this.land) {
+      this.fireClick("left");
+      return;
+    }
     if (this.onScreen) {
       const now = performance.now();
       if (now - this.vidTapAt < 500) {
@@ -968,6 +985,7 @@ export class RemoteSurface {
 
   // fullscreenchange → if we left fullscreen while in landscape, rotate back to portrait focus
   onFullscreenChange = () => {
-    if (this.mode === "touch" && !this.inFs() && this.land && !this.busy && !this.anim) void this.rotateFull();
+    if (this.mode === "touch") return; // touch never exits via browser FS gestures — only the X button closes land
+    if (!this.inFs() && this.land && !this.busy && !this.anim) void this.rotateFull();
   };
 }

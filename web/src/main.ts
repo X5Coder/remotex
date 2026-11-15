@@ -103,6 +103,7 @@ function enterRemote() {
   dockEl.hidden = remote.device !== "tablet";
   session!.setCursorCorrector((x, y) => remote?.setCursor(x, y));
   remote.attach();
+  remote.autoEnterFullscreen(); // touch: the site itself jumps straight into fullscreen — exits only via the X button
   void requestWakeLock();
 }
 
