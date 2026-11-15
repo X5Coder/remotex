@@ -90,10 +90,16 @@ function startSession(roomId: string, password: string) {
 }
 
 function enterRemote() {
+  if (inRemote) return; // silent recovery re-dial fires "connected" again here — keep the existing surface
   inRemote = true;
   connect.hide();
   appEl.hidden = false;
   remote = new RemoteSurface({ sink: session! });
+  session!.setStaleFrameProbe(() => !!remote?.framesFlowing());
+  remote.setStaleHandler(() => {
+    toast("Reconnecting…");
+    void session?.silentRecover();
+  });
   dockEl.hidden = remote.device !== "tablet";
   session!.setCursorCorrector((x, y) => remote?.setCursor(x, y));
   remote.attach();

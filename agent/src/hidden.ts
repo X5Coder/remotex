@@ -185,10 +185,18 @@ class HiddenAgent {
     room.onPeerJoin(({ peerId }) => {
       if (this.peerId && this.peerId !== peerId) {
         // belt-and-braces: room-full already refuses at the handshake,
-        // but never let a second peer through even so
-        log("refusing second peer", peerId);
-        try { this.ctl?.send(encodeCtl({ kind: "bye" }), { target: peerId } as never); } catch { /* ignore */ }
-        return;
+        // but never let a second peer through EVEN SO — unless the current seat holder
+        // is provably dead (ICE disconnected/failed/closed), e.g. a crashed/frozen tab
+        // that will never send a proper goodbye. In that case the new peer takes the seat.
+        const stale = this.seatStale();
+        if (stale) {
+          log("seat holder appears dead — handing the seat to", peerId);
+          void this.releaseSeat();
+        } else {
+          log("refusing second peer", peerId);
+          try { this.ctl?.send(encodeCtl({ kind: "bye" }), { target: peerId } as never); } catch { /* ignore */ }
+          return;
+        }
       }
       this.peerId = peerId;
       log("peer joined", peerId);
@@ -217,6 +225,29 @@ class HiddenAgent {
       else if (code === "peer-connect-failed") void reportStatus("A direct connection could not be established", "error");
       else if (code === "handshake-failed") void reportStatus("Security handshake failed", "error");
     });
+  }
+
+  /** True when the current seat holder's WebRTC connection is provably dead (no goodbye possible). */
+  private seatStale(): boolean {
+    if (!this.peerId) return true;
+    try {
+      const pc = this.room?.getPeers?.()?.[this.peerId]?.connection as RTCPeerConnection | undefined;
+      if (!pc) return true;
+      const s = pc.iceConnectionState;
+      return s === "disconnected" || s === "failed" || s === "closed";
+    } catch {
+      return true;
+    }
+  }
+
+  /** Release a provably-dead seat so the re-dialing same-device peer can rejoin cleanly. */
+  private async releaseSeat() {
+    const old = this.peerId;
+    if (!old) return;
+    log("releasing stale seat", old);
+    this.peerId = null;
+    this.stopLoops();
+    void bridge.invoke("input:inject", { kind: "reset" });
   }
 
   private async tuneSender(peerId: string) {

@@ -144,6 +144,11 @@ export class RemoteSurface {
     listen(this.app, "pointerup", this.onUp as EventListener);
     listen(this.app, "pointercancel", this.onUp as EventListener);
 
+    // when the tab comes back to the foreground, the decoder/track pipeline may need a nudge
+    listen(document, "visibilitychange", () => {
+      if (document.visibilityState === "visible" && this.video.srcObject) void this.video.play().catch(() => { /* watchdog will recover if frames stay dead */ });
+    });
+
     // desktop (mouse) direct mapping
     listen(this.screenEl, "pointermove", this.onMouseMove as EventListener);
     listen(this.screenEl, "pointerdown", this.onMouseDown as EventListener);
@@ -191,6 +196,7 @@ export class RemoteSurface {
   detach() {
     for (const [t, ev, fn, o] of this.boundHandlers) t.removeEventListener(ev, fn, o);
     this.boundHandlers = [];
+    this.stopFrameWatch();
     this.video.removeEventListener("loadedmetadata", this.vidAR);
     this.video.removeEventListener("resize", this.vidAR);
   }
@@ -201,10 +207,58 @@ export class RemoteSurface {
     if (stream) {
       this.video.srcObject = stream;
       this.screenEl.classList.add("live");
+      this.startFrameWatch();
+      void this.video.play().catch(() => { /* autoplay will retry via onStream */ });
     } else {
       this.video.srcObject = null;
       this.screenEl.classList.remove("live");
+      this.stopFrameWatch();
     }
+  }
+
+  /* ---------- stale-frame watchdog (auto re-sync when backgrounded tabs freeze) ---------- */
+
+  /** Register a callback invoked when the stream delivers NO new frames for ~2.5s. */
+  private staleCb: (() => void) | null = null;
+  private lastFrameAt = 0;
+  private staleTimer = 0;
+  private lastCt = -1;
+  private watching = false;
+
+  setStaleHandler(cb: (() => void) | null) { this.staleCb = cb; }
+
+  /** Public: used by the session's recovery path — true when frames are flowing right now. */
+  framesFlowing() { return performance.now() - this.lastFrameAt < 2500; }
+
+  private startFrameWatch() {
+    this.lastFrameAt = performance.now(); // fresh stream = fresh clock, even when re-armed on silent rejoin
+    this.lastCt = -1;
+    if (this.watching) return;
+    this.watching = true;
+    const video = this.video as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => void };
+    if (typeof video.requestVideoFrameCallback === "function") {
+      const tick = () => {
+        this.lastFrameAt = performance.now();
+        try { video.requestVideoFrameCallback!(tick); } catch { /* stream replaced — onStream re-arms */ }
+      };
+      try { video.requestVideoFrameCallback(tick); } catch { /* fall back to the interval check */ }
+    }
+    window.clearInterval(this.staleTimer);
+    this.staleTimer = window.setInterval(() => {
+      if (!this.staleCb) return;
+      if (document.visibilityState !== "visible") return; // suspended by the OS — not a fault
+      if (typeof this.video.requestVideoFrameCallback !== "function") {
+        // fallback freshness probe: currentTime only advances when decoding real frames
+        if (this.video.currentTime !== this.lastCt) { this.lastFrameAt = performance.now(); this.lastCt = this.video.currentTime; }
+      }
+      if (performance.now() - this.lastFrameAt > 2500) this.staleCb();
+    }, 1000);
+  }
+
+  private stopFrameWatch() {
+    this.watching = false;
+    window.clearInterval(this.staleTimer);
+    this.staleTimer = 0;
   }
 
   /** host cursor is the authority - snap to it exactly (zero lag, zero drift) */
@@ -399,7 +453,7 @@ export class RemoteSurface {
     // (small -> focus -> landscape -> small) - exactly like the original prototype gesture.
     if (this.onScreen) {
       const now = performance.now();
-      if (now - this.vidTapAt < 400) {
+      if (now - this.vidTapAt < 500) {
         this.vidTapAt = 0;
         try { navigator.vibrate?.(20); } catch { /* no haptics */ }
         this.expandCycle();
@@ -826,6 +880,11 @@ export class RemoteSurface {
   private inFs = () => !!(document.fullscreenElement || (document as Document & { webkitFullscreenElement?: Element }).webkitFullscreenElement);
 
   private async enterBrowserFs() {
+    // touch mode: NEVER trigger the browser's real fullscreen. Android Chrome eats taps in
+    // fullscreen (shows/hides its own chrome on tap and swallows double-taps), which broke
+    // every gesture for the video. The CSS-only "land fullscreen" (.screen.full + body.land)
+    // fills the viewport exactly the same and leaves the tap pipeline intact.
+    if (this.mode === "touch") return;
     try {
       if (this.inFs()) return;
       const f = this.fsRoot.requestFullscreen || (this.fsRoot as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> }).webkitRequestFullscreen;
@@ -838,6 +897,7 @@ export class RemoteSurface {
   }
 
   private async exitBrowserFs() {
+    if (this.mode === "touch") return; // touch never enters browser fullscreen — nothing to exit
     try {
       if (!this.inFs()) return;
       const f = document.exitFullscreen || (document as Document & { webkitExitFullscreen?: () => Promise<void> }).webkitExitFullscreen;

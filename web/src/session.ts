@@ -103,6 +103,12 @@ export class Session implements CommandSink {
   private connectTimer: number | null = null;
   private rttTimer: number | null = null;
   private disposed = false;
+  private recovering = false;
+  private staleFrameProbe: (() => boolean) | null = null;
+
+  setStaleFrameProbe(fn: (() => boolean) | null) {
+    this.staleFrameProbe = fn;
+  }
 
   constructor(private opts: { roomId: string; password: string; cb: SessionCallbacks }) {}
 
@@ -325,6 +331,47 @@ export class Session implements CommandSink {
     if (room) {
       try { await room.leave(); } catch { /* already gone */ }
     }
+  }
+
+  /**
+   * Silent recovery for a frozen stream (e.g. the tab was switched away and the WebRTC
+   * pipeline choked). First nudges the ICE layer (restartIce) — most of the time the
+   * same peer connection just resends a keyframe and frames flow again. If frames are
+   * still dead after a grace period, silently re-dials with the SAME credentials
+   * (no user interaction) — the agent notices the dead seat and hands it over.
+   */
+  async silentRecover(): Promise<void> {
+    if (this.disposed || this.recovering) return;
+    this.recovering = true;
+    console.warn("[session] stream froze — trying ICE restart for a silent recovery");
+    try {
+      const pc = (this.room as unknown as { getPeers?: () => Record<string, { connection?: RTCPeerConnection }> } | null)?.getPeers?.()?.[this.peerId ?? ""]?.connection;
+      try { (pc as unknown as { restartIce?: () => void } | undefined)?.restartIce?.(); } catch { /* best effort */ }
+      // give the transport a few seconds to re-key + request a keyframe
+      await new Promise((r) => window.setTimeout(r, 3000));
+      if (this.staleFrameProbe?.()) {
+        console.log("[session] ICE restart revived the stream");
+        this.recovering = false;
+        return;
+      }
+      console.warn("[session] ICE restart did not revive frames — silently re-dialing with the same credentials");
+    } catch (err) {
+      console.warn("[session] recovery via ICE restart failed:", err);
+    }
+    // full silent re-join (room-full on the dead seat is handled by the agent's seatStale())
+    const room = this.room;
+    this.room = null;
+    this.peerId = null;
+    this.disposed = false;
+    window.clearTimeout(this.connectTimer ?? undefined);
+    window.clearTimeout(this.rttTimer ?? undefined);
+    this.seq = new SeqCounter();
+    this.tracker = new SeqTracker();
+    this.assembler = new ChunkAssembler();
+    if (room) { try { await room.leave(); } catch { /* already gone */ } }
+    await new Promise((r) => window.setTimeout(r, 400)); // let the agent see the leave before we redial
+    await this.start(1);
+    this.recovering = false;
   }
 
   /* ---------- CommandSink (remote.ts calls these) ---------- */
