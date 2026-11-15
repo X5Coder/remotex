@@ -268,6 +268,11 @@ function registerIpc() {
     return { primary: { width: primary.size.width, height: primary.size.height }, displays };
   });
 
+  ipcMain.handle("screen:cursorRaw", () => {
+    const pos = driver?.cursorPosition() ?? { x: 0, y: 0 };
+    return { x: pos.x, y: pos.y };
+  });
+
   ipcMain.handle("screen:cursor", () => {
     const size = driver?.screenSize() ?? { width: 1, height: 1 };
     const pos = driver?.cursorPosition() ?? { x: 0, y: 0 };

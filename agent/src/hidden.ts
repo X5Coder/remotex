@@ -145,6 +145,7 @@ class HiddenAgent {
       const track = stream.getVideoTracks()[0];
       const settings = track?.getSettings() ?? {};
       if (settings.width && settings.height) {
+        this.videoDims = { w: settings.width, h: settings.height };
         void bridge.invoke("capture:dimensions", { width: settings.width, height: settings.height });
         log(`capture dimensions ${settings.width}x${settings.height}`);
       }
@@ -271,12 +272,14 @@ class HiddenAgent {
   private async sendHello() {
     try {
       const info = (await bridge.invoke("screen:info")) as { primary: { width: number; height: number }; displays: { id: string; width: number; height: number; primary?: boolean }[] };
-      const cur = (await bridge.invoke("screen:cursor")) as { nx: number; ny: number };
+      const raw = (await bridge.invoke("screen:cursorRaw")) as { x: number; y: number };
+      const vw = this.videoDims.w || info.primary.width, vh = this.videoDims.h || info.primary.height;
+      const nx = clamp01(raw.x / Math.max(1, vw - 1)), ny = clamp01(raw.y / Math.max(1, vh - 1));
       const platform = String(await bridge.invoke("platform:info"));
       const hello: HelloMessage = makeHello({
         screen: { width: info.primary.width, height: info.primary.height },
         displays: info.displays,
-        cursor: { x: clamp01(cur.nx), y: clamp01(cur.ny) },
+        cursor: { x: nx, y: ny },
         platform,
       });
       for (const frame of packCtl(hello)) void this.ctl?.send(frame);
@@ -306,11 +309,15 @@ class HiddenAgent {
     this.pingTimer = this.cursorTimer = this.statsTimer = null;
   }
 
+  // video pixel dims captured by THIS renderer — the only coordinate space matching the captured image
+  private videoDims = { w: 0, h: 0 };
+
   private async publishCursor() {
     if (!this.peerId) return;
     try {
-      const cur = (await bridge.invoke("screen:cursor")) as { nx: number; ny: number };
-      const nx = clamp01(cur.nx), ny = clamp01(cur.ny);
+      const raw = (await bridge.invoke("screen:cursorRaw")) as { x: number; y: number };
+      const w = this.videoDims.w || 1, h = this.videoDims.h || 1;
+      const nx = clamp01(raw.x / Math.max(1, w - 1)), ny = clamp01(raw.y / Math.max(1, h - 1));
       if (Math.abs(nx - this.lastCursor.x) < 0.0008 && Math.abs(ny - this.lastCursor.y) < 0.0008) return;
       this.lastCursor = { x: nx, y: ny };
       await this.fast?.send(encodeFast({ kind: "cur", seq: this.seq.next(), x: nx, y: ny }));

@@ -12,6 +12,7 @@ const invokeChannels = [
   "session:stop",
   "screen:info",
   "screen:cursor",
+  "screen:cursorRaw",
   "platform:info",
   "input:inject",
   "stats:report",
