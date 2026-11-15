@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=overlays-content">
+<meta name="theme-color" content="#eceff3">
+<title>Remote Control</title>
+<style>
+  :root{--bg:#eceff3;--ink:#1f2733;--muted:#8b95a5;--line:#d3d9e2;--accent:#5b6676}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;position:fixed;inset:0;
+    background:var(--bg) linear-gradient(170deg,#ffffff 0%,#eef0f4 45%,#d9dde4 100%);
+    color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    overscroll-behavior:none;touch-action:none;-webkit-user-select:none;user-select:none}
+
+  .app{position:fixed;left:0;right:0;top:0;height:var(--h,100vh);display:flex;flex-direction:column;
+    padding:calc(6px + env(safe-area-inset-top)) 6px 0;overflow:hidden}
+
+  .panel{align-self:stretch;display:flex;flex-direction:column;gap:6px;padding:6px;border-radius:30px;
+    background:linear-gradient(165deg,#fbfcfd 0%,#e7eaef 100%);border:1px solid #d3d9e2;
+    box-shadow:0 10px 24px -12px rgba(60,70,90,.35),inset 0 1px 0 #fff}
+
+  .screenWrap{position:relative;flex:none;width:var(--sw,100%);height:var(--sh,200px);align-self:center}
+  .screen{position:absolute;inset:0;overflow:hidden;background:linear-gradient(165deg,#fbfcfd 0%,#e6e9ee 100%);
+    border:2px solid #cdd3dc;border-radius:22px}
+  /* وضع الفوكس: شادو بارز. من غير transition عشان ميعملش repaint وقت الأنيميشن */
+  .screen.full{position:fixed;z-index:50;will-change:transform;backface-visibility:hidden;border-width:0;border-radius:18px}
+  .screen.land{border-radius:0}
+  .screen video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;display:none}
+  .screen.live video{display:block}
+  .placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:8px;color:var(--muted);font-size:13px}
+  .placeholder svg{width:40px;height:40px;opacity:.5}
+  .screen.live .placeholder{display:none}
+
+  #backdrop{position:fixed;inset:0;z-index:40;background:rgba(236,239,243,.95);opacity:0;pointer-events:none;transition:opacity .35s}
+  #backdrop.show{opacity:1;pointer-events:auto}
+  /* طبقة الشادو: عنصر لوحده بيتحرك بـ transform + opacity بس (GPU)، فبيظهر ويختفي بنعومة مع الأنيميشن */
+  #shade{position:fixed;z-index:45;pointer-events:none;border-radius:18px;opacity:0;will-change:transform,opacity;
+    box-shadow:0 28px 64px -18px rgba(20,35,60,.3),0 10px 26px -12px rgba(20,35,60,.18)}
+
+  #cursor{position:absolute;left:0;top:0;width:20px;height:20px;z-index:3;pointer-events:none;will-change:transform;
+    filter:drop-shadow(0 2px 3px rgba(0,0,0,.25))}
+  .fx{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;border:2px solid var(--accent);pointer-events:none;z-index:2}
+  .fx.r{border-color:#1f2733}
+  .ctx{position:absolute;z-index:4;background:#fff;border-radius:10px;padding:4px;font-size:11px;min-width:90px;
+    box-shadow:0 8px 22px rgba(30,60,110,.18)}
+  .ctx div{padding:5px 9px;border-radius:6px}.ctx div:first-child{background:#eceff3}
+  /* أزرار ملء الشاشة: كل زرار عايم لوحده وشبه شفاف (glass)، من غير خلفية للحاوية */
+  .lui{position:absolute;left:50%;bottom:18px;z-index:7;display:flex;gap:12px;
+    transform:translateX(-50%) translateY(8px);opacity:0;pointer-events:none;transition:opacity .25s,transform .25s}
+  .screen.land .lui{opacity:1;transform:translateX(-50%);pointer-events:auto;transition-delay:.15s}
+  /* أبيض شفاف من غير blur، فالكيرسر والمحتوى اللي وراهم يبانوا عادي */
+  .lui .btn{width:44px;height:44px;min-width:0;padding:0;border-radius:50%;color:rgba(255,255,255,.95);
+    background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.32);
+    box-shadow:0 8px 18px -8px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.28)}
+  .lui .btn svg{width:20px;height:20px;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.4))}
+  .lui .btn.down{background:rgba(255,255,255,.26);transform:scale(.92)}
+  .lui .btn.kb.on{background:rgba(255,255,255,.24);border-color:rgba(255,255,255,.6);color:#fff}
+
+  #glow{position:fixed;inset:0;width:100%;height:100%;z-index:30;pointer-events:none}
+  #hint{position:absolute;left:0;right:0;top:62%;text-align:center;padding:0 24px;color:#98a2b3;font-size:13px;
+    pointer-events:none;transition:opacity .6s}
+  #hint.hide{opacity:0}
+
+  .btns{flex:none;display:grid;grid-template-columns:1fr 1fr 52px;gap:8px;padding:6px;border-radius:22px;touch-action:none;
+    background:linear-gradient(165deg,#f5f7fa,#e1e5eb);border:1px solid #d9dee6;box-shadow:inset 0 1px 0 #fff}
+  .btn{position:relative;overflow:hidden;height:40px;border-radius:14px;font:inherit;font-size:13px;font-weight:600;
+    color:#3d4a5c;background:linear-gradient(165deg,#ffffff,#eef0f4);border:1px solid #fff;display:flex;align-items:center;justify-content:center;gap:6px;
+    box-shadow:0 3px 8px -4px rgba(60,70,90,.3);transition:transform .15s,background .25s,color .25s,border-color .25s;
+    -webkit-appearance:none;letter-spacing:.2px;touch-action:none;padding:0}
+  .btn.down{transform:scale(.96);background:rgba(232,236,242,.95)}
+  .btn svg{width:18px;height:18px;flex:none}
+  .btn.kb.on{background:linear-gradient(165deg,#566072,#2b3340);color:#fff;border-color:transparent}
+
+  body.focus{background:#000}
+  body.focus .app{padding:0;justify-content:center}
+  body.focus .panel{align-self:center;padding:0;border:0;border-radius:0;background:none;box-shadow:none}
+  body.focus .btns, body.focus #hint, body.focus #glow, body.focus #backdrop, body.focus .lui, body.focus #cursor{display:none}
+  body.focus .screen{border:0;border-radius:0;cursor:default;background:#000}
+  body.focus #shade{display:none}
+  body.mouse .placeholder{display:none}   /* الكمبيوتر: الشاشة بس، من غير أي نص أو أيقونة */
+
+  .dock{display:none;position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:60}
+  body.tablet .dock{display:flex}
+  .dock .btn{width:48px;height:48px;border-radius:50%;color:rgba(255,255,255,.95);
+    background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.32);
+    box-shadow:0 8px 18px -8px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.28)}
+  .dock .btn svg{filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.4))}
+  .dock .btn.kb.on{background:rgba(255,255,255,.24);border-color:rgba(255,255,255,.6);color:#fff}
+
+  #toast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));z-index:80;transform:translate(-50%,-20px);opacity:0;
+    background:linear-gradient(165deg,#566072,#2b3340);color:#fff;font-size:13px;padding:9px 16px;border-radius:999px;max-width:90vw;text-align:center;
+    pointer-events:none;transition:opacity .25s,transform .25s}
+  #toast.show{opacity:1;transform:translate(-50%,0)}
+
+  #kbInput{position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0;font-size:16px;
+    pointer-events:none;-webkit-user-select:text;user-select:text}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div id="backdrop"></div>
+  <div id="shade"></div>
+  <canvas id="glow"></canvas>
+
+  <div class="panel" id="panel">
+    <div class="screenWrap" id="screenWrap">
+      <div class="screen" id="screen">
+        <video id="remote-screen" autoplay playsinline muted></video>
+        <div class="placeholder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <span>Your computer screen will appear here</span>
+        </div>
+        <svg id="cursor" viewBox="0 0 24 24"><path d="M4 2l15 9-6.5 1.6L9.5 19z" fill="#1b2a3a" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <div class="lui">
+          <button class="btn" id="leftBtn2" type="button" aria-label="Left click">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="6"/><path d="M12 2.5v8M6 10.5h12"/><path d="M12 2.5v8H6v-2a6 6 0 0 1 6-6z" fill="currentColor"/></svg>
+          </button>
+          <button class="btn" id="rightBtn2" type="button" aria-label="Right click">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="6"/><path d="M12 2.5v8M6 10.5h12"/><path d="M12 2.5v8h6v-2a6 6 0 0 0-6-6z" fill="currentColor"/></svg>
+          </button>
+          <button class="btn kb" id="kbBtn2" type="button" aria-label="Keyboard">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
+          </button>
+          <button class="btn" id="exitBtn" type="button" aria-label="Exit">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="btns">
+      <button class="btn" id="leftBtn" type="button">Left Click</button>
+      <button class="btn" id="rightBtn" type="button">Right Click</button>
+      <button class="btn kb" id="kbBtn" type="button" aria-label="Keyboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="hint">Drag anywhere to move the cursor · double-tap the screen to expand</div>
+</div>
+
+<div class="dock">
+  <button class="btn kb" id="kbBtn3" type="button" aria-label="Keyboard">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
+  </button>
+</div>
+
+<div id="toast"></div>
+<input id="kbInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="send">
+
+<script>
+/* الربط مع webConnect.js:
+     الإرسال: connect.Send(JSON.stringify(cmd), { connectId: remoteConnectId })
+     الاستقبال: connect.onMessage((msg) => window.onRemoteMessage(msg)) */
+function sendCommand(cmd){ console.log('[cmd]', cmd); }
+
+const $ = id => document.getElementById(id);
+const app = $('app'), panel = $('panel'), screenEl = $('screen'), wrap = $('screenWrap'), backdrop = $('backdrop'), vid = $('remote-screen');
+const canvas = $('glow'), hint = $('hint'), cursor = $('cursor'), toastEl = $('toast');
+const ctx = canvas.getContext('2d');
+const shade = $('shade');
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const GAIN = 2;
+const LAND_GAIN = 1.7;   // حساسية الكيرسر في ملء الشاشة (قلّلها لو لسه سريع)
+const ACCEL = 0.5;       // أقصى زيادة بالتسارع مع السحب السريع. 0 = من غير تسارع
+const ANIM_MS = 380;     // مدة أنيميشن التكبير والرجوع
+
+/* ---------- تفرقة الأجهزة ---------- */
+function detectDevice(){
+  const ua = navigator.userAgent || '';
+  const pts = navigator.maxTouchPoints || 0;
+  if(/iPad/.test(ua) || (navigator.platform === 'MacIntel' && pts > 1)) return 'tablet';
+  if(matchMedia('(hover:hover) and (pointer:fine)').matches) return 'desktop';
+  if(/Android/.test(ua) && !/Mobile/.test(ua)) return 'tablet';
+  if(Math.min(screen.width, screen.height) >= 600) return 'tablet';
+  return 'phone';
+}
+const device = detectDevice();
+
+const S = { down:false, fx:0, fy:0, a:0, cx:.5, cy:.5, tx:.5, ty:.5 };
+let ring = null, running = false, SW = 1, SH = 1, W = 1, H = 1;
+let kbOpen = false, full = false, land = false;
+let ar = 16 / 9;
+let mode = device === 'desktop' ? 'mouse' : device === 'tablet' ? 'tablet' : 'touch';
+
+function kick(){ if(!running){ running = true; requestAnimationFrame(tick); } }
+
+function tick(){
+  S.cx += (S.tx - S.cx) * .35; S.cy += (S.ty - S.cy) * .35;
+  cursor.style.transform = `translate3d(${(S.cx * SW).toFixed(1)}px,${(S.cy * SH).toFixed(1)}px,0)`;
+
+  ctx.clearRect(0, 0, W, H);
+  S.a += ((S.down && !full ? 1 : 0) - S.a) * .1;
+  if(S.a > .01){
+    const R = 90, g = ctx.createRadialGradient(S.fx, S.fy, 0, S.fx, S.fy, R);
+    g.addColorStop(0, `rgba(255,255,255,${.7 * S.a})`);
+    g.addColorStop(.5, `rgba(255,255,255,${.3 * S.a})`);
+    g.addColorStop(.85, `rgba(140,150,170,${.06 * S.a})`);
+    g.addColorStop(1, 'rgba(140,150,170,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(S.fx, S.fy, R, 0, 6.283); ctx.fill();
+  }
+  if(ring){
+    ring.p += 1;
+    const t = ring.p / 60;
+    if(t >= 1) ring = null;
+    else {
+      const rad = 20 + 70 * (1 - Math.pow(1 - t, 3));
+      ctx.strokeStyle = `rgba(130,142,162,${.3 * (1 - t)})`; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(ring.x, ring.y, rad, 0, 6.283); ctx.stroke();
+    }
+  }
+  const idle = !S.down && S.a <= .01 && !ring && Math.abs(S.tx - S.cx) < .0005 && Math.abs(S.ty - S.cy) < .0005;
+  if(idle){ running = false; ctx.clearRect(0, 0, W, H); return; }
+  requestAnimationFrame(tick);
+}
+
+function measure(){
+  if(!full){ SW = screenEl.clientWidth; SH = screenEl.clientHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  W = innerWidth; H = innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  kick();
+}
+function fit(){
+  if(kbOpen) return;
+  const vh = innerHeight, vw = innerWidth, st = app.style;
+  const focus = mode !== 'touch';
+  document.body.classList.toggle('focus', focus);
+  document.body.classList.toggle('tablet', mode === 'tablet');
+  document.body.classList.toggle('mouse', mode === 'mouse');
+  st.setProperty('--h', vh + 'px');
+  let sw, sh;
+  if(focus){
+    sh = Math.min(vw / ar, vh); sw = sh * ar;
+  } else {
+    const padTop = parseFloat(getComputedStyle(app).paddingTop) || 6;
+    const maxSh = Math.max(80, vh - padTop - 6 - 30 - 52 - 70);
+    sh = Math.min((vw - 24) / ar, maxSh); sw = sh * ar;
+  }
+  st.setProperty('--sw', Math.floor(sw) + 'px');
+  st.setProperty('--sh', Math.floor(sh) + 'px');
+  scrollTo(0, 0);
+  requestAnimationFrame(() => { if(full) applyTarget(); measure(); });
+}
+addEventListener('resize', fit);
+addEventListener('orientationchange', () => setTimeout(fit, 300));
+addEventListener('scroll', () => scrollTo(0, 0));
+
+function vidAR(){
+  if(vid.videoWidth && vid.videoHeight){
+    const n = vid.videoWidth / vid.videoHeight;
+    if(Math.abs(n - ar) > .005){ ar = n; fit(); }
+  }
+}
+vid.addEventListener('loadedmetadata', vidAR);
+vid.addEventListener('resize', vidAR);
+
+function setMode(m){
+  if(m === mode) return;
+  mode = m; closeMenu();
+  tabletReset();
+  if(kbOpen) closeKb();
+  if(full){ closeFull(); setTimeout(fit, 480); } else fit();
+}
+document.addEventListener('pointerdown', e => {
+  if(e.pointerType === 'mouse') setMode('mouse');
+  else if(e.pointerType === 'touch' || e.pointerType === 'pen') setMode(device === 'phone' ? 'touch' : 'tablet');
+}, true);
+document.addEventListener('pointermove', e => { if(e.pointerType === 'mouse') setMode('mouse'); }, true);
+
+let menu = null;
+function closeMenu(){ if(menu){ menu.remove(); menu = null; } }
+function clickFx(kind, x, y){
+  const f = document.createElement('div'); f.className = 'fx' + (kind === 'r' ? ' r' : '');
+  f.style.left = (x != null ? x : S.tx * SW) + 'px'; f.style.top = (y != null ? y : S.ty * SH) + 'px';
+  screenEl.appendChild(f);
+  f.animate([{transform:'scale(.3)',opacity:.9},{transform:'scale(4)',opacity:0}], {duration:600, easing:'ease-out'}).onfinish = () => f.remove();
+}
+function showMenu(){
+  closeMenu();
+  const m = document.createElement('div'); m.className = 'ctx';
+  m.innerHTML = '<div>Open</div><div>Copy</div><div>Paste</div><div>Properties</div>';
+  m.style.left = Math.min(S.tx * SW, SW - 100) + 'px'; m.style.top = Math.min(S.ty * SH, SH - 110) + 'px';
+  screenEl.appendChild(m); menu = m;
+  m.animate([{transform:'scale(.85)',opacity:0},{transform:'none',opacity:1}], {duration:180, easing:'ease-out'});
+  setTimeout(closeMenu, 2500);
+}
+
+/* ---------- وضع الموبايل (touch) ---------- */
+let pid = null, lx = 0, ly = 0, moved = 0, tStart = 0, onScreen = false;
+let lastTap = 0, tapTimer = null, sTap = { t:0, x:0, y:0 };
+
+function doubleTap(e, fn){
+  const now = performance.now();
+  if(now - sTap.t < 350 && Math.hypot(e.clientX - sTap.x, e.clientY - sTap.y) < 40){ sTap.t = 0; fn(); }
+  else sTap = { t:now, x:e.clientX, y:e.clientY };
+}
+
+app.addEventListener('pointerdown', e => {
+  if(mode !== 'touch' || e.pointerType === 'mouse' || pid !== null || anim || busy) return;
+  if(e.target.closest('.btns, .lui')) return;
+  pid = e.pointerId; onScreen = !!e.target.closest('#screen');
+  tStart = performance.now(); moved = 0; lx = e.clientX; ly = e.clientY;
+  if(full && !land) return;
+  app.setPointerCapture(pid);
+  S.down = true; S.fx = e.clientX; S.fy = e.clientY;
+  hint.classList.add('hide');
+  kick(); e.preventDefault();
+});
+app.addEventListener('pointermove', e => {
+  if(!S.down || e.pointerId !== pid) return;
+  const rx = e.clientX - lx, ry = e.clientY - ly; lx = e.clientX; ly = e.clientY;
+  moved += Math.abs(rx) + Math.abs(ry);
+  const dx = land ? ry : rx, dy = land ? -rx : ry;
+  S.fx += (e.clientX - S.fx) * .3; S.fy += (e.clientY - S.fy) * .3;
+  const sp = Math.hypot(rx, ry);
+  const g = (land ? LAND_GAIN : GAIN) * (1 + Math.min(sp / 20, ACCEL));   // تسارع خفيف مع السحب السريع بس
+  S.tx = clamp(S.tx + dx * g / SW, 0, 1); S.ty = clamp(S.ty + dy * g / SW, 0, 1);
+  sendCommand({type:'mouse', dx:+(dx * g).toFixed(1), dy:+(dy * g).toFixed(1)});
+  kick(); e.preventDefault();
+});
+function up(e){
+  if(e.pointerId !== pid) return;
+  pid = null;
+  const isTap = moved < 8 && performance.now() - tStart < 280;
+  if(full && !land){ if(isTap && onScreen && e.type === 'pointerup') doubleTap(e, rotateFull); return; }
+  S.down = false; kick();
+  if(!isTap || e.type !== 'pointerup') return;
+  if(!full && onScreen){ doubleTap(e, openFull); return; }
+  const now = performance.now();
+  if(now - lastTap < 240){
+    clearTimeout(tapTimer); lastTap = 0;
+    if(!full) ring = { x:e.clientX, y:e.clientY, p:0 };
+    closeMenu(); clickFx('l'); setTimeout(() => clickFx('l'), 140);
+    sendCommand({type:'dblclick', button:'left'});
+  } else {
+    lastTap = now;
+    tapTimer = setTimeout(() => { closeMenu(); clickFx('l'); sendCommand({type:'click', button:'left'}); }, 240);
+  }
+}
+app.addEventListener('pointerup', up);
+app.addEventListener('pointercancel', up);
+app.addEventListener('contextmenu', e => e.preventDefault());
+
+function holdButton(btn, kind){
+  btn.addEventListener('pointerdown', e => {
+    if(btn.classList.contains('down')) return;
+    e.preventDefault(); btn.setPointerCapture(e.pointerId);
+    btn.classList.add('down');
+    if(kind === 'right'){ clickFx('r'); showMenu(); } else { closeMenu(); clickFx('l'); }
+    sendCommand({type:'down', button:kind});
+  });
+  const release = () => {
+    if(!btn.classList.contains('down')) return;
+    btn.classList.remove('down');
+    sendCommand({type:'up', button:kind});
+  };
+  btn.addEventListener('pointerup', release);
+  btn.addEventListener('pointercancel', release);
+  btn.addEventListener('contextmenu', e => e.preventDefault());
+}
+holdButton($('leftBtn'), 'left');
+holdButton($('rightBtn'), 'right');
+holdButton($('leftBtn2'), 'left');
+holdButton($('rightBtn2'), 'right');
+
+/* ---------- وضع الكمبيوتر (mouse) ---------- */
+const BTN = ['left', 'middle', 'right'];
+let mvPending = null, mvRaf = 0;
+function norm(e){
+  const r = screenEl.getBoundingClientRect();
+  return { x: clamp((e.clientX - r.left) / r.width, 0, 1), y: clamp((e.clientY - r.top) / r.height, 0, 1) };
+}
+screenEl.addEventListener('pointermove', e => {
+  if(mode !== 'mouse' || e.pointerType !== 'mouse') return;
+  mvPending = norm(e);
+  if(!mvRaf) mvRaf = requestAnimationFrame(() => {
+    mvRaf = 0;
+    if(mvPending){ sendCommand({type:'move', x:+mvPending.x.toFixed(4), y:+mvPending.y.toFixed(4)}); mvPending = null; }
+  });
+});
+screenEl.addEventListener('pointerdown', e => {
+  if(mode !== 'mouse' || e.pointerType !== 'mouse') return;
+  e.preventDefault(); screenEl.setPointerCapture(e.pointerId);
+  sendCommand({type:'down', button:BTN[e.button] || 'left'});
+});
+screenEl.addEventListener('pointerup', e => {
+  if(mode !== 'mouse' || e.pointerType !== 'mouse') return;
+  sendCommand({type:'up', button:BTN[e.button] || 'left'});
+});
+screenEl.addEventListener('contextmenu', e => e.preventDefault());
+screenEl.addEventListener('wheel', e => {
+  if(mode !== 'mouse') return;
+  e.preventDefault();
+  const k = e.deltaMode === 1 ? 40 : 1;
+  sendCommand({type:'scroll', dx:Math.round(e.deltaX * k), dy:Math.round(e.deltaY * k)});
+}, {passive:false});
+
+document.addEventListener('keydown', e => {
+  if(mode === 'touch' || e.target === kbInput) return;
+  if(['Shift','Control','Alt','Meta','AltGraph','CapsLock'].includes(e.key)) return;
+  const k = e.key.toLowerCase(), cmd = e.ctrlKey || e.metaKey;
+  if(cmd && k === 'v') return;
+  if(!/^F(5|11|12)$/.test(e.key)) e.preventDefault();
+  const mod = e.ctrlKey || e.altKey || e.metaKey;
+  if(e.key.length === 1 && !mod) sendCommand({type:'text', text:e.key});
+  else sendCommand({type:'key', key:k, ctrl:e.ctrlKey, alt:e.altKey, shift:e.shiftKey, meta:e.metaKey});
+});
+document.addEventListener('paste', e => {
+  if(mode === 'touch' || e.target === kbInput) return;
+  const text = e.clipboardData ? e.clipboardData.getData('text') : '';
+  e.preventDefault();
+  if(text) sendCommand({type:'paste', text});
+});
+
+/* ---------- وضع التابلت (tablet): لمس مباشر ---------- */
+const tp = new Map();
+let tDrag = false, tLong = false, tScroll = false, tTimer = 0;
+const tabletOn = e => mode === 'tablet' && e.pointerType !== 'mouse';
+function tabletReset(){
+  clearTimeout(tTimer);
+  if(tDrag) sendCommand({type:'up', button:'left'});
+  tp.clear(); tDrag = tLong = tScroll = false;
+}
+screenEl.addEventListener('pointerdown', e => {
+  if(!tabletOn(e)) return;
+  e.preventDefault(); screenEl.setPointerCapture(e.pointerId);
+  tp.set(e.pointerId, { x:e.clientX, y:e.clientY, sx:e.clientX, sy:e.clientY });
+  if(tp.size === 1){
+    tDrag = tLong = tScroll = false;
+    const p = norm(e); sendCommand({type:'move', x:+p.x.toFixed(4), y:+p.y.toFixed(4)});
+    clearTimeout(tTimer);
+    tTimer = setTimeout(() => {
+      if(tp.size === 1 && !tDrag){
+        tLong = true;
+        const r = screenEl.getBoundingClientRect();
+        clickFx('r', e.clientX - r.left, e.clientY - r.top);
+        try { navigator.vibrate && navigator.vibrate(15); } catch(_){}
+        sendCommand({type:'click', button:'right'});
+      }
+    }, 500);
+  } else {
+    clearTimeout(tTimer);
+    if(tDrag){ sendCommand({type:'up', button:'left'}); tDrag = false; }
+    tScroll = true;
+  }
+});
+screenEl.addEventListener('pointermove', e => {
+  if(!tabletOn(e)) return;
+  const p = tp.get(e.pointerId); if(!p) return;
+  const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+  if(tScroll){
+    if(dx || dy) sendCommand({type:'scroll', dx:Math.round(-dx), dy:Math.round(-dy)});
+    return;
+  }
+  if(tLong) return;
+  if(!tDrag && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) > 10){
+    clearTimeout(tTimer); tDrag = true;
+    sendCommand({type:'down', button:'left'});
+  }
+  if(tDrag){ const n = norm(e); sendCommand({type:'move', x:+n.x.toFixed(4), y:+n.y.toFixed(4)}); }
+});
+function tabletUp(e){
+  if(!tabletOn(e) || !tp.has(e.pointerId)) return;
+  tp.delete(e.pointerId); clearTimeout(tTimer);
+  if(tp.size === 0){
+    if(tDrag) sendCommand({type:'up', button:'left'});
+    else if(!tLong && !tScroll && e.type === 'pointerup'){
+      const r = screenEl.getBoundingClientRect();
+      clickFx('l', e.clientX - r.left, e.clientY - r.top);
+      sendCommand({type:'click', button:'left'});
+    }
+    tDrag = tLong = tScroll = false;
+  }
+}
+screenEl.addEventListener('pointerup', tabletUp);
+screenEl.addEventListener('pointercancel', tabletUp);
+
+/* ---------- Toast ---------- */
+let toastT = 0, toastFn = null;
+function toast(msg, fn){
+  toastEl.textContent = msg; toastFn = fn || null;
+  toastEl.style.pointerEvents = fn ? 'auto' : 'none';
+  toastEl.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => toastEl.classList.remove('show'), fn ? 7000 : 2200);
+}
+toastEl.addEventListener('click', () => {
+  if(!toastFn) return;
+  const f = toastFn; toastFn = null; toastEl.classList.remove('show'); f();
+});
+
+/* ---------- Clipboard ---------- */
+function legacyCopy(text){
+  const t = document.createElement('textarea');
+  t.value = text;
+  t.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;-webkit-user-select:text;user-select:text';
+  document.body.appendChild(t); t.focus(); t.select(); t.setSelectionRange(0, t.value.length);
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch(e){}
+  t.remove();
+  if(kbOpen) kbInput.focus({preventScroll:true});
+  return ok;
+}
+async function writeClip(text){
+  try { if(navigator.clipboard && window.isSecureContext){ await navigator.clipboard.writeText(text); return true; } } catch(e){}
+  return legacyCopy(text);
+}
+function handleRemote(msg){
+  if(typeof msg === 'string'){ try { msg = JSON.parse(msg); } catch(e){ return; } }
+  if(!msg || msg.type !== 'clipboard' || typeof msg.text !== 'string') return;
+  const text = msg.text;
+  writeClip(text).then(ok => {
+    if(ok) toast('Copied to device clipboard');
+    else toast('Tap to copy to device clipboard', () => writeClip(text).then(k => toast(k ? 'Copied to device clipboard' : 'Copy failed')));
+  });
+}
+window.onRemoteMessage = handleRemote;
+
+async function pasteFromPhone(){
+  let text = '';
+  try {
+    if(!navigator.clipboard || !navigator.clipboard.readText) throw new Error('no clipboard api');
+    text = await navigator.clipboard.readText();
+  } catch(e){
+    toast('Clipboard blocked here. Use your keyboard’s clipboard key.');
+    if(!kbOpen) openKb();
+    return;
+  }
+  if(!text){ toast('Clipboard is empty'); return; }
+  sendCommand({type:'paste', text});
+  toast('Pasted to computer');
+}
+
+/* ---------- الكيبورد ---------- */
+const kbInput = $('kbInput');
+const kbBtns = document.querySelectorAll('.kb');
+let prev = '', h0 = 0, kbSeen = false;
+try { if(navigator.virtualKeyboard) navigator.virtualKeyboard.overlaysContent = true; } catch(e){}
+
+function openKb(){
+  h0 = innerHeight; kbSeen = false; kbOpen = true;
+  kbBtns.forEach(b => b.classList.add('on'));
+  kbInput.style.pointerEvents = 'auto'; kbInput.focus({preventScroll:true});
+}
+function closeKb(){
+  kbOpen = false; kbInput.blur(); kbInput.style.pointerEvents = 'none';
+  kbBtns.forEach(b => b.classList.remove('on'));
+  kbInput.value = ''; prev = ''; setTimeout(fit, 300);
+}
+function kbHeight(){
+  const vk = navigator.virtualKeyboard ? navigator.virtualKeyboard.boundingRect.height : 0;
+  const vv = window.visualViewport ? Math.max(0, h0 - visualViewport.height - visualViewport.offsetTop) : 0;
+  return Math.max(vk, vv, h0 - innerHeight);
+}
+function checkKb(){
+  if(!kbOpen) return;
+  if(kbHeight() > 120) kbSeen = true;
+  else if(kbSeen) closeKb();
+}
+if(window.visualViewport) visualViewport.addEventListener('resize', checkKb);
+addEventListener('resize', checkKb);
+try { if(navigator.virtualKeyboard) navigator.virtualKeyboard.addEventListener('geometrychange', checkKb); } catch(e){}
+$('kbBtn2').addEventListener('click', () => kbOpen ? closeKb() : openKb());
+
+function bindKb(btn){
+  let hold = 0, long = false;
+  btn.addEventListener('pointerdown', e => {
+    e.preventDefault(); long = false;
+    clearTimeout(hold);
+    hold = setTimeout(() => { long = true; pasteFromPhone(); }, 550);
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => btn.addEventListener(ev, () => clearTimeout(hold)));
+  btn.addEventListener('click', () => { if(long){ long = false; return; } kbOpen ? closeKb() : openKb(); });
+}
+bindKb($('kbBtn'));
+bindKb($('kbBtn3'));
+kbInput.addEventListener('blur', () => { if(kbOpen) setTimeout(() => { if(document.activeElement !== kbInput) closeKb(); }, 200); });
+
+kbInput.addEventListener('input', () => {
+  const cur = kbInput.value; let i = 0;
+  while(i < prev.length && i < cur.length && prev[i] === cur[i]) i++;
+  for(let k = 0; k < prev.length - i; k++) sendCommand({type:'key', key:'backspace'});
+  const add = cur.slice(i); if(add) sendCommand({type:'text', text:add});
+  prev = cur;
+});
+kbInput.addEventListener('keydown', e => {
+  if(e.key === 'Enter'){ e.preventDefault(); sendCommand({type:'key', key:'enter'}); kbInput.value = ''; prev = ''; }
+});
+kbInput.addEventListener('paste', e => {
+  const text = e.clipboardData ? e.clipboardData.getData('text') : '';
+  e.preventDefault();
+  if(text) sendCommand({type:'paste', text});
+});
+
+/* ---------- العرض المكبر (الموبايل بس) ---------- */
+function target(){
+  const vw = innerWidth, vh = innerHeight;
+  if(!land){
+    const w = Math.min(vw - 16, (vh - 16) * ar), h = w / ar;
+    return { left:(vw - w) / 2, top:(vh - h) / 2, w, h, rot:0 };
+  }
+  const w = vh, h = vw;
+  return { left:(vw - w) / 2, top:(vh - h) / 2, w, h, rot:90 };
+}
+
+/* ---------- FLIP: transform بس على الـ GPU ---------- */
+let cur = null, anim = null, busy = false, pend = false;
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const stateOfRect = r => ({ cx:r.left + r.width / 2, cy:r.top + r.height / 2, w:r.width, h:r.height, rot:0 });
+const stateOfT = t => ({ cx:t.left + t.w / 2, cy:t.top + t.h / 2, w:t.w, h:t.h, rot:t.rot });
+function place(t){
+  const s = screenEl.style;
+  s.position = 'fixed'; s.right = 'auto'; s.bottom = 'auto';
+  s.left = t.left + 'px'; s.top = t.top + 'px'; s.width = t.w + 'px'; s.height = t.h + 'px';
+  s.transform = `rotate(${t.rot}deg)`;
+  SW = t.w; SH = t.h;
+  const h = shade.style;
+  h.left = s.left; h.top = s.top; h.width = s.width; h.height = s.height;
+  h.transform = s.transform; h.opacity = t.rot ? 0 : 1;
+}
+function flip(L, from, to, done, ms, o0, o1){
+  const kf = s => `translate(${(s.cx - L.cx).toFixed(2)}px,${(s.cy - L.cy).toFixed(2)}px) rotate(${s.rot}deg) scale(${(s.w / L.w).toFixed(4)},${(s.h / L.h).toFixed(4)})`;
+  if(o0 == null){ o0 = o1 = +shade.style.opacity || 0; }
+  screenEl.classList.add('moving');
+  const opt = { duration:ms || ANIM_MS, easing:'cubic-bezier(.2,.8,.2,1)', fill:'forwards' };
+  anim = screenEl.animate([{ transform:kf(from) }, { transform:kf(to) }], opt);
+  const sa = shade.animate([{ transform:kf(from), opacity:o0 }, { transform:kf(to), opacity:o1 }], opt);
+  anim.onfinish = () => {
+    const a = anim; anim = null;
+    screenEl.classList.remove('moving');
+    if(done) done();
+    a.cancel(); sa.cancel();
+    if(pend){ pend = false; if(full) applyTarget(); }   // لو الـ viewport اتغير وقت الأنيميشن، نظبط بعدها بنعومة
+  };
+}
+function applyTarget(){
+  if(anim){ pend = true; return; }                 // مش هنغير الـ layout في نص أنيميشن شغال
+  const t = target(), L = stateOfT(t), from = cur;
+  place(t); cur = L;
+  if(from && !busy && (Math.abs(from.cx - L.cx) > 1 || Math.abs(from.cy - L.cy) > 1 || Math.abs(from.w - L.w) > 1 || Math.abs(from.h - L.h) > 1))
+    flip(L, from, L, null, 240, L.rot ? 0 : 1, L.rot ? 0 : 1);
+}
+
+/* ---------- fullscreen بتاع المتصفح ---------- */
+const fsRoot = document.documentElement;
+const inFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+async function enterBrowserFs(){
+  try{
+    if(inFs()) return;
+    const f = fsRoot.requestFullscreen || fsRoot.webkitRequestFullscreen;
+    if(f){
+      await f.call(fsRoot);
+      try { navigator.keyboard && navigator.keyboard.lock && navigator.keyboard.lock(['Escape']); } catch(_){}
+      await wait(150);
+    }
+  }catch(e){}
+}
+async function exitBrowserFs(){
+  try{
+    if(!inFs()) return;
+    const f = document.exitFullscreen || document.webkitExitFullscreen;
+    if(f){ await f.call(document); await wait(150); }
+  }catch(e){}
+}
+['fullscreenchange', 'webkitfullscreenchange'].forEach(ev =>
+  document.addEventListener(ev, () => { if(mode === 'touch' && !inFs() && land && !busy && !anim) rotateFull(); }));
+
+['pointerup', 'keydown'].forEach(ev => document.addEventListener(ev, () => {
+  if(mode !== 'touch' && !inFs()) enterBrowserFs();
+}, true));
+
+function openFull(){
+  if(full || anim || busy) return;
+  closeMenu();
+  const from = stateOfRect(screenEl.getBoundingClientRect());
+  const t = target(), L = stateOfT(t);
+  full = true; land = false;
+  place(t);
+  screenEl.classList.add('full'); backdrop.classList.add('show');
+  cur = L;
+  flip(L, from, L, null, 0, 0, 1);              // الشادو يظهر بنعومة
+}
+function closeFull(){
+  if(!full || anim || busy) return;
+  closeMenu();
+  const to = stateOfRect(wrap.getBoundingClientRect()), L = cur;
+  land = false;
+  screenEl.classList.remove('land');
+  backdrop.classList.remove('show');
+  SW = to.w; SH = to.h;
+  shade.style.opacity = 0;
+  flip(L, L, to, () => {
+    full = false;
+    screenEl.classList.remove('full');
+    const s = screenEl.style;
+    s.position = s.left = s.top = s.width = s.height = s.right = s.bottom = s.transform = '';
+    cur = null; measure(); shade.style.cssText = '';
+    exitBrowserFs();                               // نخرج من الـ fullscreen بعد ما الأنيميشن يخلص
+  }, 0, 1, 0);                                   // الشادو يختفي بنعومة وإحنا راجعين
+}
+async function rotateFull(){
+  if(!full || anim || busy) return;
+  if(land){
+    /* الرجوع لوضع الفوكس: الأنيميشن الأول والـ viewport ثابت (ده اللي كان بيعلق)،
+       وبعد ما يخلص نخرج من الـ fullscreen */
+    if(kbOpen) closeKb();
+    const back = cur;
+    land = false;
+    screenEl.classList.remove('land');
+    const tb = target(), Lb = stateOfT(tb);
+    place(tb); cur = Lb;
+    flip(Lb, back, Lb, () => { exitBrowserFs(); }, 0, 0, 1);
+    return;
+  }
+  busy = true;
+  await enterBrowserFs();
+  const from = stateOfT(target());
+  land = !land;
+  screenEl.classList.toggle('land', land);
+  const t = target(), L = stateOfT(t);
+  place(t); cur = L;
+  busy = false;
+  flip(L, from, L, null, 0, 1, 0);              // الشادو يختفي في اللاندسكيب
+}
+backdrop.addEventListener('click', closeFull);
+$('exitBtn').addEventListener('click', () => { if(kbOpen) closeKb(); if(land) rotateFull(); });
+
+/* لما الـ stream يوصل:
+   connect.onStreaming((stream) => {
+     vid.srcObject = stream; screenEl.classList.add('live');
+   }); */
+fit();
+</script>
+</body>
+</html>

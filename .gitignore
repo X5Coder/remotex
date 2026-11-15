@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+release/
+out/
+
+# Protocol package output
+protocol/dist/
+
+# Web build
+web/dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# Electron / native builds
+*.tsbuildinfo
+.agent-data/
+
+# Editor
+.vscode/
+.idea/

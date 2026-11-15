@@ -1,0 +1,205 @@
+﻿<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'">
+<title>RemoteX</title>
+<style>
+  :root{
+    --bg:#eceff3;--ink:#1f2733;--muted:#8b95a5;--line:#d3d9e2;--accent:#5b6676;
+    --card:#fbfcfd;--ok:#3a7d44;--err:#a63a3a;--warn:#b8913a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-user-select:none;user-select:none}
+  html,body{height:100%}
+  body{
+    background:var(--bg) linear-gradient(170deg,#ffffff 0%,#eef0f4 45%,#d9dde4 100%);
+    color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    overflow:hidden
+  }
+
+  /* ---------- custom title bar (matches the site) ---------- */
+  .titlebar{height:44px;display:flex;align-items:center;gap:8px;padding:0 6px 0 14px;
+    -webkit-app-region:drag;border-bottom:1px solid rgba(211,217,226,.6)}
+  .titlebar img{width:19px;height:19px;-webkit-app-region:no-drag}
+  .titlebar .tbTitle{font-size:12.5px;font-weight:700;letter-spacing:.4px;color:#1f2733;flex:1;white-space:nowrap}
+  .tbBtn{-webkit-app-region:no-drag;width:38px;height:32px;border:0;background:transparent;border-radius:8px;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;color:#5b6676;touch-action:manipulation}
+  .tbBtn:hover{background:rgba(31,39,51,.07);color:#1f2733}
+  .tbBtn.close:hover{background:#a63a3a;color:#fff}
+  .tbBtn svg{width:13px;height:13px;stroke-width:2}
+
+  /* ---------- content ---------- */
+  .wrap{display:flex;flex-direction:column;gap:10px;padding:14px 16px 10px;height:calc(100% - 44px);overflow:hidden;touch-action:pan-y}
+  .brand{display:flex;flex-direction:column;gap:2px}
+  .brandSub{font-size:10px;letter-spacing:2.4px;color:var(--accent);font-weight:800;text-transform:uppercase}
+  h1{font-size:22px;font-weight:800;letter-spacing:-.4px;color:#1f2733}
+  .sub{font-size:11.5px;color:var(--muted)}
+
+  .card{background:linear-gradient(165deg,#fbfcfd 0%,#e7eaef 100%);border:1px solid var(--line);
+    border-radius:20px;padding:12px 13px;box-shadow:0 12px 26px -16px rgba(60,70,90,.4),inset 0 1px 0 #fff}
+  .label{font-size:10px;letter-spacing:1.8px;color:var(--accent);font-weight:800;text-transform:uppercase;margin-bottom:6px}
+  .row{display:flex;align-items:center;gap:10px}
+  .monoVal{flex:1;min-width:0;height:46px;display:flex;align-items:center;justify-content:center;
+    background:#fff;border:1px solid var(--line);border-radius:14px;
+    font-family:"Cascadia Mono","Consolas","SF Mono",Menlo,monospace;font-weight:700;font-size:20px;
+    letter-spacing:3px;color:#1f2733;padding:0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .monoVal.pass{color:#2b3340;letter-spacing:6px}
+  .copyBtn{flex:none;width:46px;height:46px;border-radius:14px;border:1px solid var(--line);
+    background:linear-gradient(165deg,#ffffff,#eef0f4);color:#3d4a5c;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;transition:border-color .15s,color .15s;touch-action:manipulation}
+  .copyBtn:hover{border-color:var(--accent);color:var(--accent)}
+  .copyBtn.ok{border-color:var(--ok);color:var(--ok);width:auto;padding:0 12px}
+  .copyBtn svg{width:18px;height:18px}
+  .monoVal.lan{font-size:12.5px;letter-spacing:.4px;justify-content:flex-start}
+  .lanCard{border-color:#cfe0d2;background:linear-gradient(165deg,#f4fbf6 0%,#e3efe5 100%)}
+
+  .statusRow{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#2e2a22;line-height:1.45}
+  .statusRow + .statusRow{margin-top:8px}
+  .dot{width:9px;height:9px;border-radius:50%;background:#c3cad4;flex:none}
+  .dot.waiting{background:var(--warn);animation:pulse 1.4s infinite alternate}
+  .dot.connected{background:var(--ok)}
+  .dot.error{background:var(--err)}
+  @keyframes pulse{from{opacity:.4}to{opacity:1}}
+  .stats{font-size:10px;color:#9aa3af;font-family:"Cascadia Mono","Consolas",monospace;
+    border-top:1px dashed var(--line);padding-top:9px;margin-top:8px;letter-spacing:.2px}
+
+  .btnStop{height:46px;border-radius:14px;cursor:pointer;font:inherit;font-size:13.5px;font-weight:800;
+    color:var(--err);background:#fff;border:1px solid #e0c4c4;transition:border-color .15s,background .15s;touch-action:manipulation}
+  .btnStop:hover:not(:disabled){background:#fdf4f4;border-color:var(--err)}
+  .btnStop:disabled{opacity:.4;cursor:default}
+
+  .hint{font-size:10px;color:var(--muted);line-height:1.65}
+  .hint b{color:#3d4a5c}
+
+  .footer{margin-top:auto;display:flex;justify-content:space-between;align-items:center;
+    border-top:1px solid rgba(211,217,226,.7);padding-top:10px;font-size:10px;color:var(--muted)}
+  .footer b{color:#3d4a5c;letter-spacing:2px;font-weight:800}
+  .link{background:none;border:0;color:var(--accent);font:inherit;font-size:10px;cursor:pointer;padding:4px 2px}
+  .link:hover{text-decoration:underline}
+  ::-webkit-scrollbar{width:0;height:0;display:none}
+</style>
+</head>
+<body>
+  <div class="titlebar">
+    <img src="icon.png" alt="RemoteX">
+    <span class="tbTitle">RemoteX</span>
+    <button class="tbBtn" id="minBtn" aria-label="Minimize">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M6 12h12"/></svg>
+    </button>
+    <button class="tbBtn close" id="closeBtn" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+
+  <div class="wrap">
+    <div class="brand">
+      <span class="brandSub">RemoteX</span>
+      <h1>This computer is ready</h1>
+      <span class="sub">Two numbers — share them with the person controlling this PC (or use them yourself).</span>
+    </div>
+
+    <div class="card">
+      <div class="label">Device ID · permanent</div>
+      <div class="row">
+        <div class="monoVal" id="roomId">—</div>
+        <button class="copyBtn" id="copyId" title="Copy Device ID"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">Password · resets every launch</div>
+      <div class="row">
+        <div class="monoVal pass" id="password">—</div>
+        <button class="copyBtn" id="copyPass" title="Copy password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="statusRow"><span class="dot waiting" id="dot"></span><span id="statusText">Waiting for a connection…</span></div>
+      <div class="statusRow"><span class="dot" id="powerDot"></span><span id="powerText">Checking keep-awake…</span></div>
+      <div class="stats" id="statsLine">stream — fps — Mbps — encoder —</div>
+    </div>
+
+    <button class="btnStop" id="stopBtn" disabled>Stop session</button>
+
+    <p class="hint">Anyone with the Device ID <b>and</b> the password can control this computer from a browser.
+      The password changes every time the agent launches — old ones stop working.</p>
+
+    <div class="card lanCard" id="lanCard" hidden>
+      <div class="label">Open this on your phone (same Wi-Fi)</div>
+      <div class="row">
+        <div class="monoVal lan" id="lanUrl">—</div>
+        <button class="copyBtn" id="copyLan" title="Copy LAN link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span><b>REMOTEX</b></span>
+      <button class="link" id="quitBtn">Quit RemoteX</button>
+    </div>
+  </div>
+
+<script>
+const r = window.remotex;
+const $ = (id) => document.getElementById(id);
+const minBtn = $('minBtn'), closeBtn = $('closeBtn');
+
+if (!r) {
+  const st = $('statusText');
+  if (st) st.textContent = 'Preload failed — reinstall RemoteX.';
+  const d = $('dot'); if (d) d.className = 'dot error';
+} else {
+  minBtn.addEventListener('click', () => r.invoke('win:minimize'));
+  closeBtn.addEventListener('click', () => r.invoke('win:close'));
+
+  async function loadIdentity() {
+    const id = await r.invoke('agent:identity');
+    $('roomId').textContent = id.roomId;
+    $('password').textContent = id.password;
+    if (id.lan && id.lan.url) {
+      const card = $('lanCard');
+      if (card) { card.hidden = false; $('lanUrl').textContent = id.lan.url; }
+    }
+    const pd = $('powerDot');
+    if (id.power.status === 'active') { pd.className = 'dot connected'; }
+    else if (id.power.status === 'partial' || id.power.status === 'unavailable') { pd.className = 'dot waiting'; }
+    else { pd.className = 'dot error'; }
+    $('powerText').textContent = id.power.detail;
+  }
+  function flashCopied(btn) {
+    if (btn.dataset.busy) return;
+    const original = btn.innerHTML;
+    btn.dataset.busy = '1';
+    btn.classList.add('ok');
+    btn.innerHTML = '<span class="copied">Copied!</span>';
+    setTimeout(() => {
+      btn.classList.remove('ok');
+      btn.innerHTML = original;
+      delete btn.dataset.busy;
+    }, 1600);
+  }
+  $('copyId').addEventListener('click', async () => { await r.invoke('agent:copy', $('roomId').textContent); flashCopied($('copyId')); });
+  $('copyPass').addEventListener('click', async () => { await r.invoke('agent:copy', $('password').textContent); flashCopied($('copyPass')); });
+  $('copyLan').addEventListener('click', async () => { await r.invoke('agent:copy', $('lanUrl').textContent); flashCopied($('copyLan')); });
+  $('stopBtn').addEventListener('click', () => { r.invoke('session:stop'); });
+  $('quitBtn').addEventListener('click', () => r.invoke('agent:quit'));
+
+  r.on('status:update', (p) => {
+    if (p.kind === 'stats') {
+      $('statsLine').textContent = 'stream ' + (p.fps ? p.fps.toFixed(0) + ' fps' : '—') +
+        ' · ' + (p.mbps ? p.mbps.toFixed(1) + ' Mbps' : '—') +
+        ' · RTT ' + (p.rttMs != null ? p.rttMs + ' ms' : '—') +
+        ' · ' + (p.encoder || 'encoder —') +
+        ' · rung ' + p.rung;
+      return;
+    }
+    const dot = $('dot');
+    dot.className = 'dot ' + (p.tone || 'waiting');
+    $('statusText').textContent = p.text || '';
+    $('stopBtn').disabled = p.tone !== 'connected';
+  });
+  loadIdentity();
+}
+</script>
+</body>
+</html>

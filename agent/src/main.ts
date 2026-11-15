@@ -1,0 +1,349 @@
+﻿/**
+ * RemoteX — Electron main process.
+ *
+ * Small visible window with:
+ *   - the PERMANENT Room ID (created once, saved in userData)
+ *   - the per-launch RANDOM password (memory only)
+ *   - connection status, keep-awake status, fps/bitrate telemetry
+ *   - a "Stop session" button (drops the client, re-arms the room)
+ *
+ * A hidden window (dist/hidden.html) owns WebRTC + capture; this process owns
+ * the OS: input injection, clipboard, power settings, tray.
+ */
+import { app, BrowserWindow, Tray, Menu, ipcMain, clipboard, powerSaveBlocker, screen, nativeImage, desktopCapturer, session } from "electron";
+import * as path from "path";
+import * as fs from "fs";
+import { loadOrCreateIdentity, createLaunchPassword } from "./config";
+import { createDriver, clipboardHash, type InputDriver } from "./input";
+import { startLanServer, lanInfo, stopLanServer } from "./lan";
+
+// --------------------------------------------------------------- singleton --
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+}
+
+// ------------------------------------------------------------------- state --
+let quitting = false;
+let win: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let hidden: BrowserWindow | null = null;
+let driver: InputDriver | null = null;
+let keepAwake: { status: string; detail: string; isAdmin: boolean; stop(): void } | null = null;
+let powerSaveBlockerIds: number[] = [];
+
+const identity = loadOrCreateIdentity();
+const password = createLaunchPassword();
+
+/** clipboard-sync echo guards */
+let lastClipboardHash: string | null = null;
+let lastAgentClipboardWrite = 0;
+let lastStats: { fps: number; mbps: number; encoder: string; rung: number; rttMs: number | null } = { fps: 0, mbps: 0, encoder: "", rung: 0, rttMs: null };
+
+// ------------------------------------------------------------ window & tray --
+function createMainWindow() {
+  win = new BrowserWindow({
+    width: 470,
+    height: 640,
+    minWidth: 420,
+    minHeight: 600,
+    resizable: true,
+    maximizable: false,
+    frame: false,
+    title: "RemoteX",
+    backgroundColor: "#eceff3",
+    icon: path.join(__dirname, "icon.png"),
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  void win.loadFile(path.join(__dirname, "window.html"));
+  win.on("close", (e) => {
+    if (!quitting) {
+      e.preventDefault();
+      win?.hide();
+    }
+  });
+  win.on("closed", () => { win = null; });
+}
+
+function ensureWindow() {
+  if (!win) createMainWindow();
+  win?.show();
+  win?.focus();
+}
+
+function createTray() {
+  const icon = nativeImage.createFromPath(path.join(__dirname, "icon.png")).resize({ width: 16, height: 16 });
+  tray = new Tray(icon);
+  tray.setToolTip("RemoteX — click to show Device ID");
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: "Show RemoteX", click: () => ensureWindow() },
+      { label: "Stop session", click: () => stopSession() },
+      { type: "separator" },
+      { label: "Quit RemoteX", click: () => app.quit() },
+    ])
+  );
+  tray.on("click", () => {
+    if (win?.isVisible()) win.hide(); else ensureWindow();
+  });
+}
+
+function createHiddenWindow() {
+  hidden = new BrowserWindow({
+    show: false,
+    width: 1,
+    height: 1,
+    skipTaskbar: true,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false, // needs mediaDevices + RTCPeerConnection; no node APIs from remote content
+    },
+  });
+  void hidden.loadFile(path.join(__dirname, "hidden.html"), {
+    query: { roomId: identity.roomId, password },
+  });
+  hidden.webContents.on("console-message", ((event: { message?: string } | unknown) => {
+    const msg = typeof (event as { message?: string })?.message === "string" ? (event as { message: string }).message : String(event);
+    console.log("[hidden-ui]", msg);
+  }) as never);
+  hidden.webContents.on("render-process-gone", (_e, details) => {
+    console.error("[hidden] renderer gone:", details.reason);
+    stopPower();
+  });
+  hidden.on("closed", () => { hidden = null; });
+}
+
+// ------------------------------------------------------------------- power --
+function startPower() {
+  for (const type of ["prevent-display-sleep", "prevent-app-suspension"] as const) {
+    try {
+      powerSaveBlockerIds.push(powerSaveBlocker.start(type));
+    } catch (err) {
+      console.error("[power] powerSaveBlocker failed:", err);
+    }
+  }
+  const platformDir = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require(path.join(__dirname, "..", "platform", platformDir, "power.js"));
+    keepAwake = mod.keepAwake({ userData: app.getPath("userData"), log: (m: string) => console.log("[power]", m) });
+  } catch (err) {
+    keepAwake = {
+      status: "unavailable",
+      detail: `Keep-awake module failed to load: ${err instanceof Error ? err.message : String(err)}`,
+      isAdmin: false,
+      stop: () => {},
+    };
+  }
+}
+
+function stopPower() {
+  try { keepAwake?.stop(); } catch (err) { console.error("[power] stop failed:", err); }
+  for (const id of powerSaveBlockerIds) {
+    try { powerSaveBlocker.stop(id); } catch { /* already stopped */ }
+  }
+  powerSaveBlockerIds = [];
+}
+
+// ------------------------------------------------------------- video handler --
+function installDisplayCaptureHandlers() {
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === "display-capture" || permission === "media");
+  });
+  session.defaultSession.setDisplayMediaRequestHandler(
+    async (_request, callback) => {
+      try {
+        const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 0, height: 0 } });
+        const primary = screen.getPrimaryDisplay();
+        const primaryId = String(primary.id);
+        const source = sources.find((s) => s.display_id === primaryId) ?? sources[0];
+        if (!source) { callback({}); return; }
+        callback({ video: source });
+      } catch (err) {
+        console.error("[capture] handler failed:", err);
+        callback({});
+      }
+    },
+    { useSystemPicker: false }
+  );
+}
+
+// ----------------------------------------------------------------- clipboard --
+function startClipboardPolling() {
+  setInterval(() => {
+    void (async () => {
+      try {
+        const text = await clipboard.readText();
+        if (!text) return;
+        if (text.length > 1024 * 1024) return; // 1 MB cap
+        if (Date.now() - lastAgentClipboardWrite < 800) return; // suppress self-echo
+        const hash = clipboardHash(text);
+        if (hash === lastClipboardHash) return;
+        lastClipboardHash = hash;
+        hidden?.webContents.send("clipboard-changed", text);
+      } catch { /* clipboard locked by another app */ }
+    })();
+  }, 250);
+}
+
+// -------------------------------------------------------------------- input --
+function injectInput(msg: any): void {
+  if (!driver) return;
+  switch (msg?.kind) {
+    case "move":
+      driver.move(Number(msg.x) || 0, Number(msg.y) || 0);
+      return;
+    case "click":
+      driver.move(Number(msg.x) || 0, Number(msg.y) || 0);
+      driver.click(msg.button ?? "left", !!msg.double);
+      return;
+    case "button":
+      if (msg.down) driver.buttonDown(msg.button ?? "left");
+      else driver.buttonUp(msg.button ?? "left");
+      return;
+    case "key":
+      driver.key(String(msg.code ?? ""), String(msg.key ?? ""), !!msg.down, msg.mods ?? { ctrl: false, alt: false, shift: false, meta: false });
+      return;
+    case "text":
+      lastAgentClipboardWrite = Date.now();
+      driver.typeText(String(msg.text ?? ""));
+      return;
+    case "paste":
+      lastAgentClipboardWrite = Date.now();
+      void driver.pasteText(String(msg.text ?? ""));
+      return;
+    case "reset":
+      driver.reset();
+      return;
+    default:
+      console.warn("[input] unknown message", msg?.kind);
+  }
+}
+
+// --------------------------------------------------------------------- ipc --
+function registerIpc() {
+  ipcMain.handle("agent:identity", () => ({
+    roomId: identity.roomId,
+    password,
+    power: { status: keepAwake?.status ?? "unknown", detail: keepAwake?.detail ?? "unknown", isAdmin: keepAwake?.isAdmin ?? false },
+    lan: lanInfo(),
+  }));
+
+  ipcMain.handle("agent:copy", async (_e, text: unknown) => {
+    await clipboard.writeText(String(text ?? ""));
+  });
+
+  ipcMain.handle("agent:quit", () => app.quit());
+
+  ipcMain.handle("agent:status", (_e, payload: unknown) => {
+    const p = payload as { text?: string; tone?: string };
+    if (p?.text) console.log("[status]", p.tone ?? "", "-", p.text);
+    win?.webContents.send("status:update", payload);
+    if (tray) tray.setToolTip(p?.tone === "connected" ? "RemoteX Agent — session active" : "RemoteX Agent — waiting");
+  });
+
+  ipcMain.handle("session:stop", () => stopSession());
+
+  ipcMain.handle("screen:info", () => {
+    const displays = screen.getAllDisplays().map((d) => ({
+      id: String(d.id),
+      width: d.size.width,
+      height: d.size.height,
+      primary: d.id === screen.getPrimaryDisplay().id,
+    }));
+    const primary = screen.getPrimaryDisplay();
+    return { primary: { width: primary.size.width, height: primary.size.height }, displays };
+  });
+
+  ipcMain.handle("screen:cursor", () => {
+    const size = driver?.screenSize() ?? { width: 1, height: 1 };
+    const pos = driver?.cursorPosition() ?? { x: 0, y: 0 };
+    return { nx: pos.x / Math.max(1, size.width - 1), ny: pos.y / Math.max(1, size.height - 1) };
+  });
+
+  ipcMain.handle("platform:info", () => process.platform);
+
+  ipcMain.handle("input:inject", (_e, msg: unknown) => { injectInput(msg); });
+
+  ipcMain.handle("capture:primary-source", async () => {
+    try {
+      const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 0, height: 0 } });
+      const primary = screen.getPrimaryDisplay();
+      const match = sources.find((s) => s.display_id === String(primary.id));
+      return (match ?? sources[0])?.id ?? "";
+    } catch (err) {
+      console.error("[capture] fallback source query failed:", err);
+      return "";
+    }
+  });
+
+  ipcMain.handle("win:minimize", () => { win?.minimize(); });
+  ipcMain.handle("win:close", () => { win?.hide(); });
+
+  ipcMain.handle("turn:config", () => {
+    try {
+      const raw = fs.readFileSync(path.join(app.getPath("userData"), "turn.json"), "utf8");
+      const j = JSON.parse(raw) as { urls?: unknown; username?: unknown; credential?: unknown };
+      const urls = Array.isArray(j?.urls)
+        ? j.urls.filter((u): u is string => typeof u === "string" && u.length > 0)
+        : typeof j?.urls === "string" && j.urls ? [j.urls] : [];
+      if (urls.length === 0) return null;
+      const cfg: { urls: string[]; username?: string; credential?: string } = { urls: urls.slice(0, 5) };
+      if (typeof j.username === "string") cfg.username = j.username;
+      if (typeof j.credential === "string") cfg.credential = j.credential;
+      return cfg;
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle("stats:report", (_e, stats: unknown) => {
+    lastStats = { ...lastStats, ...(stats as object) };
+    win?.webContents.send("status:update", { ...lastStats, kind: "stats" });
+  });
+
+  ipcMain.handle("rtt:report", (_e, ms: unknown) => {
+    const rttMs = typeof ms === "number" ? Math.round(ms) : null;
+    if (rttMs !== null) lastStats.rttMs = rttMs;
+    win?.webContents.send("status:update", { ...lastStats, kind: "stats" });
+  });
+}
+
+function stopSession() {
+  driver?.reset();
+  hidden?.webContents.send("session:stop");
+  win?.webContents.send("status:update", { tone: "waiting", text: "Session stopped — ready for a new connection" });
+}
+
+// ---------------------------------------------------------------- lifecycle --
+void app.whenReady().then(() => {
+  if (!gotLock) return;
+  const size = screen.getPrimaryDisplay().size;
+  driver = createDriver({ width: size.width, height: size.height });
+  installDisplayCaptureHandlers();
+  startPower();
+  registerIpc();
+  createTray();
+  createMainWindow();
+  createHiddenWindow();
+  startClipboardPolling();
+  startLanServer(); // LAN-mode: serves web client + LAN signaling relay
+});
+
+app.on("before-quit", () => { quitting = true; });
+app.on("will-quit", () => {
+  stopPower();
+  stopLanServer();
+  try { tray?.destroy(); } catch { /* fine */ }
+});
+
+app.on("activate", () => ensureWindow());
+
+app.on("second-instance", () => ensureWindow());

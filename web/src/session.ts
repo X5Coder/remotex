@@ -1,0 +1,337 @@
+﻿/**
+ * RemoteX â€” WebRTC session (web client side).
+ *
+ * Signaling: Trystero (Nostr by default). The password derives the AES-256-GCM
+ * signaling key (PBKDF2) â€” the SDP handshake is end-to-end encrypted and public
+ * relays never see your screen. After connect, everything is direct P2P.
+ *
+ * Single session: maxUsers = 2 (agent + you). The first valid peer holds the
+ * seat; anyone else gets "room-full". The agent additionally refuses any command
+ * coming from a peer other than the first one.
+ *
+ * Channel reality (trystero >= 0.27): ONE ordered, reliable data channel.
+ * We therefore send ONE move per rAF (latest only) â€” see remote.ts â€” which makes
+ * app-level unreliable delivery unnecessary for the cursor.
+ */
+import { joinRoom } from "trystero";
+import {
+  PROTOCOL_VERSION,
+  SeqCounter,
+  SeqTracker,
+  encodeFast,
+  decodeFast,
+  isPing,
+  decodeCtl,
+  packCtl,
+  ChunkAssembler,
+  isVersionMismatch,
+  type MouseButton,
+  type HelloMessage,
+} from "@remotex/protocol";
+import type { CommandSink } from "./remote";
+
+type Room = ReturnType<typeof joinRoom>;
+
+const APP_ID = "remotex-1"; // namespace shared with the agent; change = everyone must upgrade
+const CONNECT_TIMEOUT_MS = 12_000;
+const MAX_ATTEMPTS = 3;
+// Public Nostr relays verified live from this network (2026-11-15): all accepted
+// Trystero's discovery kinds and completed WebSocket handshakes. relay.damus.io is
+// down for this user (HTTP 520/521) and relay.nos.social refuses Trystero's message
+// kinds — both excluded.
+const IS_LAN_HOST = /^(localhost|127\.0\.0\.1|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(window.location.hostname);
+
+/** probe the agent's LAN relay on the single fixed port (4545) */
+async function probeLanRelay(host: string): Promise<string | null> {
+  const port = 4545;
+  const ok = await new Promise<boolean>((resolve) => {
+    try {
+      const ws = new WebSocket(`ws://${host}:${port}`);
+      const timer = window.setTimeout(() => { try { ws.close(); } catch {} resolve(false); }, 700);
+      ws.onopen = () => { window.clearTimeout(timer); try { ws.close(); } catch {} resolve(true); };
+      ws.onerror = () => { window.clearTimeout(timer); resolve(false); };
+    } catch {
+      resolve(false);
+    }
+  });
+  return ok ? `ws://${host}:4545` : null;
+}
+
+const NOSTR_RELAYS = [
+  "wss://relay.nostr.net",
+  "wss://nos.lol",
+  "wss://relay.snort.social",
+  "wss://relay.primal.net",
+  "wss://yabu.me",
+  "wss://nostr-relay-production.up.railway.app",
+];
+
+async function buildRelayUrls(): Promise<string[]> {
+  if (!IS_LAN_HOST) return NOSTR_RELAYS;
+  const lan = await probeLanRelay(window.location.hostname);
+  return lan ? [lan, ...NOSTR_RELAYS] : NOSTR_RELAYS;
+}
+
+export type SessionPhase = "connecting" | "connected" | "failed" | "closed";
+
+export interface SessionCallbacks {
+  onPhase(phase: SessionPhase, reason?: string): void;
+  onStream(stream: MediaStream): void;
+  onHello(hello: HelloMessage): void;
+  onRtt(ms: number): void;
+  onClipboard(text: string): void;
+  /** true when the remote said the version is mismatched (agent asks user to update) */
+  onVersionMismatch(): void;
+}
+
+export class Session implements CommandSink {
+  private room: Room | null = null;
+  private fast: { send: (d: Uint8Array) => Promise<void>; onMessage: (h: (d: unknown, ctx: { peerId: string }) => void) => () => void } | null = null;
+  private ctl: { send: (d: string) => Promise<void>; onMessage: (h: (d: unknown, ctx: { peerId: string }) => void) => () => void } | null = null;
+  private seq = new SeqCounter();
+  private tracker = new SeqTracker();
+  private assembler = new ChunkAssembler();
+  private peerId: string | null = null;
+  private connectTimer: number | null = null;
+  private rttTimer: number | null = null;
+  private disposed = false;
+
+  constructor(private opts: { roomId: string; password: string; cb: SessionCallbacks }) {}
+
+  /** Optional TURN relay — drop a turn.json next to index.html for guaranteed
+   *  connectivity on restrictive networks (Cloudflare TURN free tier works). */
+  private async loadTurnConfig(): Promise<{ urls: string[]; username?: string; credential?: string } | null> {
+    try {
+      const res = await fetch("./turn.json", { cache: "no-store" });
+      if (!res.ok) return null;
+      const j = (await res.json()) as { urls?: unknown; username?: unknown; credential?: unknown };
+      const urls = Array.isArray(j?.urls)
+        ? j.urls.filter((u): u is string => typeof u === "string" && u.length > 0)
+        : typeof j?.urls === "string" && j.urls ? [j.urls] : [];
+      if (urls.length === 0) return null;
+      const cfg: { urls: string[]; username?: string; credential?: string } = { urls: urls.slice(0, 5) };
+      if (typeof j.username === "string") cfg.username = j.username;
+      if (typeof j.credential === "string") cfg.credential = j.credential;
+      return cfg;
+    } catch {
+      return null;
+    }
+  }
+
+  async start(attempt = 1) {
+    const { roomId, password, cb } = this.opts;
+    if (attempt > 1) console.log(`[session] retry attempt ${attempt}`);
+    const turn = await this.loadTurnConfig();
+    const relayUrls = await buildRelayUrls();
+    console.log("[session] relay urls:", relayUrls.join(", ") || "(none)");
+    cb.onPhase("connecting");
+
+    let room: Room;
+    try {
+      room = joinRoom(
+        {
+          appId: APP_ID,
+          password,
+          maxUsers: 2, // agent + this client â€” single session
+          trickleIce: true,
+          relayConfig: { urls: relayUrls },
+          ...(turn ? { turnConfig: [turn] } : {}),
+        },
+        roomId
+      );
+    } catch {
+      if (attempt < MAX_ATTEMPTS) void this.retrySoon(attempt);
+      else cb.onPhase("failed", "Could not start the connection (invalid Device ID?)");
+      return;
+    }
+    this.room = room;
+
+    this.fast = room.makeAction<Uint8Array>("fast");
+    this.ctl = room.makeAction<string>("ctl");
+
+    this.fast.onMessage((data, ctx) => {
+      if (ctx.peerId !== this.peerId) return;
+      const bytes = data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer);
+      const msg = decodeFast(bytes);
+      if (!msg) return;
+      // pong: echo the exact 7 bytes so the agent can measure RTT
+      if (msg.kind === "ping" && isPing(bytes)) { void this.fast?.send(bytes).catch(() => {}); return; }
+      if (msg.kind === "cur") {
+        if (!this.tracker.accept(msg.seq)) return; // drop stale cursor packets
+        this.onCur?.(msg.x, msg.y);
+      }
+    });
+
+    this.ctl.onMessage((raw, ctx) => {
+      if (ctx.peerId !== this.peerId) return; // refuse non-session peers
+      try {
+        const decoded = decodeCtl(raw as string);
+        const full = this.assembler.push(decoded);
+        if (!full) return;
+        void this.handleCtl(full);
+      } catch { /* malformed frame â€” drop */ }
+    });
+
+    room.onPeerJoin(({ peerId }) => {
+      if (this.peerId && this.peerId !== peerId) return; // seat already taken â€” refuse silently
+      this.peerId = peerId;
+      window.clearTimeout(this.connectTimer ?? undefined);
+      cb.onPhase("connected");
+      this.startRtt();
+    });
+
+    room.onPeerLeave(({ peerId }) => {
+      if (peerId === this.peerId) this.handleClose("The agent disconnected.");
+    });
+
+    room.onError((err) => {
+      const code = (err as { code?: string }).code;
+      if (code === "decrypt-failed") this.handleClose("Wrong password for this Device ID.");
+      else if (code === "room-full") this.handleClose("This computer already has an active session.");
+      else if (code === "peer-connect-failed") this.handleClose("Could not establish a direct connection. Try another network.");
+      else if (code === "relay-failed") this.handleClose("All public relays failed. Check your internet connection.");
+      else if (code === "handshake-failed") this.handleClose("Security handshake failed. Try again.");
+      else if (code === "banned") this.handleClose("This session was refused by the agent.");
+    });
+
+    room.onPeerStream((stream, ctx) => {
+      if (ctx.peerId !== this.peerId) return;
+      this.tuneReceiver(stream);
+      cb.onStream(stream);
+    });
+
+    this.connectTimer = window.setTimeout(() => {
+      if (this.peerId) return;
+      if (attempt < MAX_ATTEMPTS) void this.retrySoon(attempt);
+      else {
+        if (IS_LAN_HOST) {
+          const url = `http://${window.location.hostname}:4545/`;
+          this.handleClose(`Could not reach — make sure RemoteX is running, then open exactly ${url} and type the CURRENT password shown in the RemoteX window.`);
+        } else {
+          this.handleClose("Could not reach the computer — check that RemoteX is running and try again.");
+        }
+      }
+    }, CONNECT_TIMEOUT_MS);
+  }
+
+  /** Tear down the failed room, then re-try from scratch. Silent — the connect button already says Connecting. */
+  private async retrySoon(attempt: number) {
+    console.log(`[session] attempt ${attempt} timed out — retrying…`);
+    const room = this.room;
+    this.room = null;
+    if (room) { try { await room.leave(); } catch { /* already gone */ } }
+    window.clearTimeout(this.connectTimer ?? undefined);
+    window.setTimeout(() => { if (!this.disposed) this.start(attempt + 1); }, 400);
+  }
+
+  /** Latest-only cursor correction from the agent (absolute, normalized). */
+  setCursorCorrector(fn: (x: number, y: number) => void) {
+    this.onCur = fn;
+  }
+  private onCur: ((x: number, y: number) => void) | null = null;
+
+  private async handleCtl(msg: import("@remotex/protocol").CtlMessage) {
+    const cb = this.opts.cb;
+    switch (msg.kind) {
+      case "hello":
+        if (isVersionMismatch(msg)) cb.onVersionMismatch();
+        else cb.onHello(msg);
+        return;
+      case "clipboard":
+        cb.onClipboard(msg.text);
+        return;
+      case "ack":
+        if (!msg.ok && msg.error === "protocol-mismatch") cb.onVersionMismatch();
+        return;
+      case "bye":
+        this.handleClose("The agent ended the session.");
+        return;
+      default:
+        return; // down/up/click/text/paste/key are not expected client-bound
+    }
+  }
+
+  private tuneReceiver(stream: MediaStream) {
+    // ask for the lowest possible jitter buffer (Chromium-only, best-effort)
+    try {
+      const pc = this.room?.getPeers()?.[this.peerId ?? ""]?.connection;
+      const receiver = pc?.getReceivers().find((r) => r.track?.kind === "video");
+      const r = receiver as RTCRtpReceiver & { jitterBufferTarget?: number; playoutDelayHint?: number } | undefined;
+      if (r) {
+        r.jitterBufferTarget = 0;
+        r.playoutDelayHint = 0;
+      }
+    } catch { /* Safari/Firefox: use default jitter buffer */ }
+    void stream;
+  }
+
+  private startRtt() {
+    const tick = async () => {
+      if (!this.room || !this.peerId) return;
+      try {
+        const ms = await this.room.ping(this.peerId);
+        this.opts.cb.onRtt(Math.round(ms));
+      } catch { /* ignore single ping failures */ }
+      this.rttTimer = window.setTimeout(() => void tick(), 1000);
+    };
+    void tick();
+  }
+
+  private handleClose(reason: string) {
+    if (this.disposed) return;
+    this.disposed = true;
+    window.clearTimeout(this.connectTimer ?? undefined);
+    window.clearTimeout(this.rttTimer ?? undefined);
+    this.opts.cb.onPhase("closed", reason);
+    void this.close();
+  }
+
+  /** User-initiated disconnect: closes the room without surfacing an error. */
+  async stop() {
+    if (this.disposed) return;
+    this.disposed = true;
+    window.clearTimeout(this.connectTimer ?? undefined);
+    window.clearTimeout(this.rttTimer ?? undefined);
+    await this.close();
+  }
+
+  async close() {
+    const room = this.room;
+    this.room = null;
+    if (room) {
+      try { await room.leave(); } catch { /* already gone */ }
+    }
+  }
+
+  /* ---------- CommandSink (remote.ts calls these) ---------- */
+
+  move(x: number, y: number) {
+    this.fast?.send(encodeFast({ kind: "move", seq: this.seq.next(), x, y })).catch(() => {});
+  }
+
+  scroll(dx: number, dy: number) {
+    this.fast?.send(encodeFast({ kind: "scroll", seq: this.seq.next(), dx, dy })).catch(() => {});
+  }
+
+  pointer(kind: "down" | "up" | "click" | "dblclick", button: MouseButton, x: number, y: number) {
+    for (const frame of packCtl({ kind, button, x, y })) void this.ctl?.send(frame).catch(() => {});
+  }
+
+  key(code: string, key: string, down: boolean, mods: { ctrl: boolean; alt: boolean; shift: boolean; meta: boolean }) {
+    for (const frame of packCtl({ kind: "key", code, key, down, ctrl: mods.ctrl, alt: mods.alt, shift: mods.shift, meta: mods.meta }))
+      void this.ctl?.send(frame).catch(() => {});
+  }
+
+  text(text: string) {
+    for (const frame of packCtl({ kind: "text", text })) void this.ctl?.send(frame).catch(() => {});
+  }
+
+  paste(text: string) {
+    for (const frame of packCtl({ kind: "paste", text })) void this.ctl?.send(frame).catch(() => {});
+  }
+}
+
+/** Hello the CLIENT expects (the agent is the sender of hello). */
+export function helloOk(hello: HelloMessage): boolean {
+  return !isVersionMismatch(hello) && hello.version === PROTOCOL_VERSION;
+}

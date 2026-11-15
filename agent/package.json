@@ -1,0 +1,33 @@
+{
+  "name": "@remotex/agent",
+  "version": "0.1.0",
+  "description": "RemoteX Agent — the companion app that runs on the computer you want to control. Screen capture, input injection, keep-awake, single-session secure access.",
+  "license": "MIT",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "icon": "node tools/gen-icon.js",
+    "build": "npm run clean && npm run icon && tsc -p tsconfig.json && node tools/copy-window.js && node tools/build-hidden.js",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@jitsi/robotjs": "^0.6.24",
+    "@remotex/protocol": "file:../protocol",
+    "@types/ws": "^8.18.2",
+    "trystero": "^0.27.0",
+    "ws": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "electron": "^45.3.2",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.3"
+  },
+  "allowScripts": {
+    "@jitsi/robotjs@0.6.24": true,
+    "esbuild@0.25.12": true
+  }
+}

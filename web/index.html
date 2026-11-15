@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=overlays-content">
+<meta name="theme-color" content="#eceff3">
+<meta name="description" content="RemoteX — control your computer from any browser. Peer-to-peer, end-to-end encrypted.">
+<title>RemoteX</title>
+<link rel="icon" type="image/png" href="./icon.png">
+<link rel="apple-touch-icon" href="./icon.png">
+<link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+
+<!-- ============ Connect: Device ID + Password + Connect — nothing else ============ -->
+<div class="connectScreen" id="connectScreen">
+  <form class="connectCard" id="connectForm" autocomplete="on">
+    <div class="field">
+      <label for="roomId">Device ID</label>
+      <input id="roomId" name="roomId" type="text" inputmode="numeric" autocapitalize="off" autocorrect="off" spellcheck="false"
+        placeholder="012345" autocomplete="off" maxlength="6" class="pwCaps" required>
+    </div>
+
+    <div class="field">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="text" class="pwCaps" autocapitalize="characters" autocorrect="off" spellcheck="false"
+        placeholder="PASSWORD" autocomplete="off" maxlength="6" required>
+    </div>
+
+    <button class="connectBtn" id="connectBtn" type="submit" disabled>Connect</button>
+  </form>
+</div>
+
+<!-- ============ Remote surface (hidden until connected) ============ -->
+<div class="app" id="app" hidden>
+  <div id="backdrop"></div>
+  <div id="shade"></div>
+  <canvas id="glow"></canvas>
+
+  <div class="panel" id="panel">
+    <div class="screenWrap" id="screenWrap">
+      <div class="screen" id="screen">
+        <video id="remote-screen" autoplay playsinline muted></video>
+        <div class="placeholder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <span>Waiting for the screen stream…</span>
+        </div>
+        <svg id="cursor" viewBox="0 0 24 24"><path d="M4 2l15 9-6.5 1.6L9.5 19z" fill="#1b2a3a" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <div class="lui">
+          <button class="btn" id="leftBtn2" type="button" aria-label="Left click">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="6"/><path d="M12 2.5v8M6 10.5h12"/><path d="M12 2.5v8H6v-2a6 6 0 0 1 6-6z" fill="currentColor"/></svg>
+          </button>
+          <button class="btn" id="rightBtn2" type="button" aria-label="Right click">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="6"/><path d="M12 2.5v8M6 10.5h12"/><path d="M12 2.5v8h6v-2a6 6 0 0 0-6-6z" fill="currentColor"/></svg>
+          </button>
+          <button class="btn kb" id="kbBtn2" type="button" aria-label="Keyboard">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
+          </button>
+          <button class="btn" id="exitBtn" type="button" aria-label="Exit">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="btns">
+      <button class="btn" id="leftBtn" type="button">Left Click</button>
+      <button class="btn" id="rightBtn" type="button">Right Click</button>
+      <button class="btn kb" id="kbBtn" type="button" aria-label="Keyboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="hint">Drag anywhere to move the cursor · double-tap the screen to expand</div>
+</div>
+
+<div class="dock" id="dock" hidden>
+  <button class="btn kb" id="kbBtn3" type="button" aria-label="Keyboard">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
+  </button>
+</div>
+
+<div class="pill" id="rtt" hidden>RTT —</div>
+<button class="disconnect" id="disconnectBtn" hidden aria-label="Disconnect">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.4 6.6a8 8 0 1 1-12.8 0"/><path d="M12 2v9"/></svg>
+</button>
+<div id="toast"></div>
+<input id="kbInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="send">
+
+<script type="module" src="./src/main.ts"></script>
+</body>
+</html>

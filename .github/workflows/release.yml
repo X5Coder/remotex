@@ -1,0 +1,47 @@
+name: Release agents (Windows / macOS / Linux)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  agent:
+    name: Package — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            protocol/package-lock.json
+            agent/package-lock.json
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxtst-dev libpng-dev python3 make g++
+      - working-directory: protocol
+        run: npm ci && npm run build
+      - working-directory: agent
+        run: npm ci && npm run build
+
+      - name: Build & upload to release
+        working-directory: agent
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          case "${{ runner.os }}" in
+            Windows) npx electron-builder --win --x64 --arm64 --publish always ;;
+            macOS)   npx electron-builder --mac --universal --publish always ;;
+            Linux)   npx electron-builder --linux AppImage deb rpm --publish always ;;
+          esac
+
+      - name: Build native deps marker (nothing to do — electron-builder rebuilds)
+        run: echo "electron-builder npmRebuild=true handles @jitsi/robotjs for the packaged ABI"
