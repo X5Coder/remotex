@@ -28,8 +28,8 @@ export interface InputDriver {
   buttonUp(button: "left" | "middle" | "right"): void;
   /** physical code/key press edge — modifiers as given */
   key(code: string, key: string, down: boolean, mods: { ctrl: boolean; alt: boolean; shift: boolean; meta: boolean }): void;
-  /** insert plain text (ASCII via typeString, anything else via clipboard+paste) */
-  typeText(text: string): void;
+  /** insert text as hardware keystrokes (KEYEVENTF_UNICODE/layout-physical — no clipboard, no paste) */
+  typeText(text: string): Promise<void>;
   /** paste arbitrary unicode text via clipboard (saves & restores) */
   pasteText(text: string): Promise<void>;
   /** current cursor in absolute pixels of the primary display */
@@ -152,11 +152,22 @@ export class RobotDriver implements InputDriver {
     }
   }
 
-  typeText(text: string) {
-    if (!this.robot) return;
-    // non-ASCII → clipboard paste (Arabic, emoji) — never per-key typing
-    if (!/^[\x20-\x7E\n\t]*$/.test(text)) { console.log(`[input] typeText non-ascii (${text.length} chars) -> clipboard paste`); void this.pasteText(text); return; }
-    try { this.robot.typeString(text); } catch (err) { console.error("[input] typeText failed:", err); }
+  async typeText(text: string): Promise<void> {
+    // hardware-level injection (layout-physical keys, KEYEVENTF_UNICODE fallback) —
+    // no clipboard, no paste, no layout dependence; types exactly like the real keyboard
+    try {
+      const { unicodeType } = require("./unicode-type") as typeof import("./unicode-type");
+      const r = await unicodeType(text);
+      if (!r.ok) {
+        console.error("[input] typeText failed:", r.error ?? "unknown error");
+      } else if (process.env.REMOTEX_INPUT_LOG) {
+        console.log(`[input] typeText ${r.units} units (physical=${r.physical})`);
+      }
+    } catch (err) {
+      console.error("[input] typeText failed:", err instanceof Error ? err.message : err);
+      // last-resort fallback: clipboard paste (only if the OS drove us out of both paths)
+      try { if (/^[\x20-\x7E\n\t]*$/.test(text)) this.robot?.typeString(text); } catch { /* give up */ }
+    }
   }
 
   async pasteText(text: string): Promise<void> {
@@ -219,7 +230,7 @@ export class NullDriver implements InputDriver {
   buttonDown() {}
   buttonUp() {}
   key() {}
-  typeText() {}
+  async typeText(): Promise<void> {}
   async pasteText(): Promise<void> {}
   cursorPosition() { return { x: 0, y: 0 }; }
   screenSize() { return { width: 1, height: 1 }; }

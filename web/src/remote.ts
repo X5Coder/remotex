@@ -95,7 +95,7 @@ export class RemoteSurface {
   private moved = 0;
   private tStart = 0;
   private onScreen = false;
-  private longTimer: number | null = null;
+  private vidTapAt = 0;
   private lastRemoteClip: string | null = null;
 
   private tp = new Map<number, { x: number; y: number; sx: number; sy: number }>();
@@ -342,14 +342,6 @@ export class RemoteSurface {
     this.S.down = true;
     this.S.fx = e.clientX; this.S.fy = e.clientY;
     this.hint.classList.add("hide");
-    // long-press (finger held still) = fullscreen cycle: small -> focus -> landscape -> small
-    window.clearTimeout(this.longTimer ?? undefined);
-    this.longTimer = window.setTimeout(() => {
-      if (this.pid === e.pointerId && this.moved < 8) {
-        try { navigator.vibrate?.(20); } catch { /* no haptics */ }
-        this.expandCycle();
-      }
-    }, LONG_PRESS_MS);
     this.kick();
   };
 
@@ -359,7 +351,6 @@ export class RemoteSurface {
     const rx = e.clientX - this.lx, ry = e.clientY - this.ly;
     this.lx = e.clientX; this.ly = e.clientY;
     this.moved += Math.abs(rx) + Math.abs(ry);
-    if (this.moved > 8) window.clearTimeout(this.longTimer ?? undefined);
     const dx = rx, dy = ry; // land mode no longer rotates the video — same 1:1 mapping everywhere
     this.S.fx += (e.clientX - this.S.fx) * 0.3;
     this.S.fy += (e.clientY - this.S.fy) * 0.3;
@@ -380,10 +371,9 @@ export class RemoteSurface {
     if (this.mvPending) { this.sink.move(+this.mvPending.x.toFixed(4), +this.mvPending.y.toFixed(4)); this.mvPending = null; }
   };
 
-  /* ---------- tap = click instantly, double-tap = two quick clicks (Windows folds them into a double-click) - just like a touchpad ---------- */
-  /* ---------- نقرة = كليك فوري، نقرتان = كليكين متتاليين — تماماً مثل الباد في ويندوز ---------- */
+  /* ---------- video double-tap = focus cycle; taps on empty area = click / double-click (Windows folds) — NO long-press ---------- */
 
-  /** long-press cycle: small -> focus (portrait) -> landscape (fullscreen) -> small */
+  /** video double-tap cycle: small -> focus (portrait) -> landscape (fullscreen) -> small */
   private expandCycle = () => {
     if (!this.full) { this.openFull(); return; }   // small -> focus
     if (!this.land) { void this.rotateFull(); return; } // focus -> landscape (fullscreen)
@@ -398,7 +388,6 @@ export class RemoteSurface {
 
   private onUp = (e: PointerEvent) => {
     if (e.pointerId !== this.pid) return;
-    window.clearTimeout(this.longTimer ?? undefined);
     this.pid = null;
     const wasCursorDown = this.S.down;
     const isTap = this.moved < 8 && performance.now() - this.tStart < 280;
@@ -406,15 +395,23 @@ export class RemoteSurface {
     this.kick();
     if (!wasCursorDown || !isTap || e.type !== "pointerup") return;
 
-    // taps ON THE VIDEO behave like a Windows touchpad: every tap is a REAL click,
-    // so two taps inside the OS double-click time become a double-click automatically
+    // taps ON THE VIDEO never click. A DOUBLE-TAP on the video cycles focus mode
+    // (small -> focus -> landscape -> small) - exactly like the original prototype gesture.
     if (this.onScreen) {
-      this.fireClick("left");
+      const now = performance.now();
+      if (now - this.vidTapAt < 400) {
+        this.vidTapAt = 0;
+        try { navigator.vibrate?.(20); } catch { /* no haptics */ }
+        this.expandCycle();
+        return;
+      }
+      this.vidTapAt = now;
       return;
     }
 
-    // taps elsewhere (padding/hint zone) - intentionally does NOTHING to the host
-    return;
+    // taps on the empty area below the video/buttons = REAL click; two quick taps =
+    // double-click (Windows folds two fast clicks into one double-click) - like a touchpad
+    this.fireClick("left");
   };
 
   /* ---------- hold buttons ---------- */

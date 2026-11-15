@@ -100,7 +100,13 @@ class HiddenAgent {
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
         // NO width/height constraint — otherwise Chromium captures at DIP resolution and mismatches robotjs
-        video: { frameRate: { ideal: 60, max: 60 } },
+        // cursor: 'never' — the host's own arrow stays visible ON THE MACHINE ONLY; it is NOT baked
+        // into the stream, so the overlay cursor in the phone UI is the ONLY cursor the user sees.
+        // cursor: 'never' — honored by Chromium for window captures; ignored for whole-screen
+        // captures (platform restriction). The captured arrow is ~5-7 px on the phone and is
+        // completely covered by our own 1:1 overlay arrow (same position, Windows arrow shape),
+        // so the user sees exactly ONE cursor anyway. The host arrow itself is never touched.
+        video: { frameRate: { ideal: 60, max: 60 }, cursor: "never" } as unknown as MediaTrackConstraints,
         audio: false,
       });
     } catch (err) {
@@ -136,8 +142,9 @@ class HiddenAgent {
     //    so DPI scaling never breaks it (robotjs returns DIP; Electron bounds are DIP)
     try {
       const track = stream.getVideoTracks()[0];
-      const settings = track?.getSettings() ?? {};
+      const settings = (track?.getSettings() ?? {}) as MediaTrackSettings & { cursor?: string };
       if (settings.width && settings.height) log(`capture: native physical ${settings.width}x${settings.height}`);
+      log(`capture cursor setting: ${settings.cursor ?? "unsupported"} (host arrow stays on the machine only)`);
     } catch { /* optional diagnostic */ }
 
     // 2) join the room (encrypted SDP; maxUsers=2 → single session)

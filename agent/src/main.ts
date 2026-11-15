@@ -197,7 +197,15 @@ function startClipboardPolling() {
 }
 
 // -------------------------------------------------------------------- input --
-function injectInput(msg: any): void {
+// Input commands MUST run strictly in order — text typing is paced (~8ms/char) and an
+// out-of-order backspace/enter would corrupt the typed stream. A single serial promise
+// chain guarantees this for every command kind.
+let inputChain: Promise<void> = Promise.resolve();
+function injectInput(msg: unknown): void {
+  inputChain = inputChain.then(() => injectInputNow(msg)).catch((e) => console.error("[input] inject failed:", e));
+}
+
+async function injectInputNow(msg: any): Promise<void> {
   if (!driver) return;
   switch (msg?.kind) {
     case "move":
@@ -220,12 +228,12 @@ function injectInput(msg: any): void {
     case "text":
       if (process.env.REMOTEX_INPUT_LOG) console.log(`[input ${new Date().toISOString().slice(11,19)}] text ${JSON.stringify(String(msg.text ?? ""))}`);
       lastAgentClipboardWrite = Date.now();
-      driver.typeText(String(msg.text ?? ""));
+      await driver.typeText(String(msg.text ?? ""));
       return;
     case "paste":
       lastAgentClipboardWrite = Date.now();
       console.log("[input] paste from client:", String(msg.text ?? "").length, "chars");
-      void driver.pasteText(String(msg.text ?? ""));
+      await driver.pasteText(String(msg.text ?? ""));
       return;
     case "reset":
       driver.reset();

@@ -16,6 +16,7 @@
     "@jitsi/robotjs": "^0.6.24",
     "@remotex/protocol": "file:../protocol",
     "@types/ws": "^8.18.2",
+    "koffi": "^3.3.8",
     "trystero": "^0.27.0",
     "ws": "^8.23.0"
   },
