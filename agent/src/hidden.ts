@@ -94,21 +94,12 @@ class HiddenAgent {
       return;
     }
 
-    // 1) capture the primary screen at its native resolution, up to 60 fps
-    let nativeW = 1920, nativeH = 1080;
-    try {
-      const info = (await bridge.invoke("screen:info")) as { primary: { width: number; height: number } };
-      if (info?.primary?.width) { nativeW = info.primary.width; nativeH = info.primary.height; }
-    } catch { /* fall back to 1080p constraints */ }
-
+    // 1) capture the primary screen at native resolution, up to 60 fps
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: nativeW },
-          height: { ideal: nativeH },
-          frameRate: { ideal: 60, max: 60 },
-        },
+        // NO width/height constraint — otherwise Chromium captures at DIP resolution and mismatches robotjs
+        video: { frameRate: { ideal: 60, max: 60 } },
         audio: false,
       });
     } catch (err) {
@@ -140,17 +131,18 @@ class HiddenAgent {
       turnCfg = (await bridge.invoke("turn:config")) as typeof turnCfg;
     } catch { turnCfg = null; }
 
-    // 3) no capture dims needed for cursor — Electron's DIP bounds give dip space; keep them only for stats log
+    // 3) capture dims are captured in the renderer (used by cursor normalization); report them to main too
     try {
       const track = stream.getVideoTracks()[0];
       const settings = track?.getSettings() ?? {};
-      if (settings.width && settings.height) {
-        this.videoDims = { w: settings.width, h: settings.height };
-        void bridge.invoke("capture:dimensions", { width: settings.width, height: settings.height });
-        log(`capture dimensions ${settings.width}x${settings.height}`);
-      }
+      const w = settings.width || Math.round((window.screen.width || 1920) * (window.devicePixelRatio || 1));
+      const h = settings.height || Math.round((window.screen.height || 1080) * (window.devicePixelRatio || 1));
+      this.videoDims = { w, h };
+      void bridge.invoke("capture:dimensions", { width: w, height: h });
+      log(`capture dimensions ${w}x${h}`);
     } catch (err) {
-      console.warn("[hidden] could not read capture dimensions:", err);
+      this.videoDims = { w: 1920, h: 1080 };
+      console.warn("[hidden] could not read capture dimensions — assuming 1920x1080:", err);
     }
 
     // 2) join the room (encrypted SDP; maxUsers=2 → single session)
@@ -273,8 +265,9 @@ class HiddenAgent {
     try {
       const info = (await bridge.invoke("screen:info")) as { primary: { width: number; height: number }; displays: { id: string; width: number; height: number; primary?: boolean }[] };
       const raw = (await bridge.invoke("screen:cursorRaw")) as { x: number; y: number };
-      const b = (await bridge.invoke("screen:bounds")) as { x: number; y: number; w: number; h: number };
-      const nx = clamp01((raw.x - b.x) / Math.max(1, b.w - 1)), ny = clamp01((raw.y - b.y) / Math.max(1, b.h - 1));
+      // normalize against the actual captured resolution reported by THIS renderer — always consistent with the video pixels
+      const w = this.videoDims.w || 1, h = this.videoDims.h || 1;
+      const nx = clamp01(raw.x / Math.max(1, w - 1)), ny = clamp01(raw.y / Math.max(1, h - 1));
       const platform = String(await bridge.invoke("platform:info"));
       const hello: HelloMessage = makeHello({
         screen: { width: info.primary.width, height: info.primary.height },
@@ -316,8 +309,9 @@ class HiddenAgent {
     if (!this.peerId) return;
     try {
       const raw = (await bridge.invoke("screen:cursorRaw")) as { x: number; y: number };
-      const b = (await bridge.invoke("screen:bounds")) as { x: number; y: number; w: number; h: number };
-      const nx = clamp01((raw.x - b.x) / Math.max(1, b.w - 1)), ny = clamp01((raw.y - b.y) / Math.max(1, b.h - 1));
+      // normalize against the actual captured resolution reported by THIS renderer — always consistent with the video pixels
+      const w = this.videoDims.w || 1, h = this.videoDims.h || 1;
+      const nx = clamp01(raw.x / Math.max(1, w - 1)), ny = clamp01(raw.y / Math.max(1, h - 1));
       if (Math.abs(nx - this.lastCursor.x) < 0.0008 && Math.abs(ny - this.lastCursor.y) < 0.0008) return;
       this.lastCursor = { x: nx, y: ny };
       await this.fast?.send(encodeFast({ kind: "cur", seq: this.seq.next(), x: nx, y: ny }));
