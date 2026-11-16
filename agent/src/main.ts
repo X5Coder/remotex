@@ -16,6 +16,7 @@ import * as fs from "fs";
 import { loadOrCreateIdentity, createLaunchPassword } from "./config";
 import { createDriver, clipboardHash, type InputDriver } from "./input";
 import { startLanServer, lanInfo, stopLanServer } from "./lan";
+import { startLocalMouseWatch, type LocalMouseWatch } from "./local-mouse-watch";
 
 // --------------------------------------------------------------- singleton --
 const gotLock = app.requestSingleInstanceLock();
@@ -28,6 +29,7 @@ let quitting = false;
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let hidden: BrowserWindow | null = null;
+let localMouseWatch: LocalMouseWatch | null = null;
 let driver: InputDriver | null = null;
 let keepAwake: { status: string; detail: string; isAdmin: boolean; stop(): void } | null = null;
 let powerSaveBlockerIds: number[] = [];
@@ -398,12 +400,16 @@ void app.whenReady().then(() => {
   createHiddenWindow();
   startClipboardPolling();
   startLanServer(); // LAN-mode: serves web client + LAN signaling relay
+  // Windows-only: WH_MOUSE_LL physical mouse watch — the person at THIS PC always gets
+  // the OS arrow back instantly, even while a remote session is driving remotely
+  localMouseWatch = startLocalMouseWatch((x, y) => hidden?.webContents.send("local-mouse-activity", { x, y }));
 });
 
 app.on("before-quit", () => { quitting = true; });
 app.on("will-quit", () => {
   stopPower();
   stopLanServer();
+  try { localMouseWatch?.stop(); } catch { /* fine */ }
   try { const { ensureHostCursorVisible } = require("./cursor-visibility") as typeof import("./cursor-visibility"); ensureHostCursorVisible(); } catch { /* fine */ }
   try { tray?.destroy(); } catch { /* fine */ }
 });

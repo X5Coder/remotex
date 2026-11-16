@@ -31,6 +31,7 @@ const onChannels = [
   "clipboard-changed",
   "session:ended-by-user",
   "session:stop",
+  "local-mouse-activity",
 ] as const;
 
 contextBridge.exposeInMainWorld("remotex", {

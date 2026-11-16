@@ -104,6 +104,8 @@ class HiddenAgent {
   private static readonly REMOTE_IDLE_RESTORE_MS = 3000;
   /** number of cursor-moving commands whose injection has not been applied by the main process yet */
   private inflightMoves = 0;
+  /** last time a PHYSICAL mouse/trackpad report landed at this machine (WH_MOUSE_LL) — the local desktop owns the arrow from that instant */
+  private lastPhysicalAt = 0;
   private hostCursorVisible = true;
   private bitrateRung = 0;
   private statsStrikes = { lowFps: 0, loss: 0, good: 0 };
@@ -284,9 +286,16 @@ class HiddenAgent {
    * command — the hide never waits for position polling, so the arrow cannot flicker.
    */
   private claimRemoteCursor() {
+    const now = performance.now();
+    this.lastRemoteInputAt = now; // always record — drives the idle-restore window
+    if (now - this.lastPhysicalAt < 150) {
+      // the web client is relaying THIS machine's own mouse (same laptop, same screen) —
+      // the person sitting at this PC owns the arrow; the remote page must not steal it
+      this.cursorMismatchPolls = 0;
+      return;
+    }
     this.cursorMode = "remote";
     this.cursorMismatchPolls = 0;
-    this.lastRemoteInputAt = performance.now();
     this.setHostCursorVisible(false);
   }
 
@@ -297,6 +306,21 @@ class HiddenAgent {
     this.cursorMismatchPolls = 0;
     this.lastRawSample = null;
     this.setHostCursorVisible(true);
+  }
+
+  /**
+   * Physical hardware mouse/trackpad input touched THIS machine (WH_MOUSE_LL — never fires
+   * for SendInput injections). The person at this PC owns the cursor: restore the OS arrow
+   * the moment a physical report arrives. Remote claims within 150 ms of a physical event are
+   * treated as the browser relaying THIS machine's own mouse and are ignored.
+   */
+  noteLocalPhysicalActivity() {
+    const wasHidden = this.cursorMode === "remote" || this.hostCursorVisible === false;
+    this.lastPhysicalAt = performance.now();
+    if (wasHidden) {
+      log("[cursor] physical mouse input at this machine — restoring local arrow");
+      this.releaseRemoteCursor();
+    }
   }
 
   /**
@@ -623,6 +647,12 @@ const agent = new HiddenAgent();
 window.addEventListener("DOMContentLoaded", () => {
   // user pressed "Stop session" in the agent window
   bridge.on("session:stop", () => void agent.rearm());
+  // the OS reported a PHYSICAL USB/Bluetooth mouse/trackpad event at THIS machine (not a SendInput
+  // injection — the low-level hook filters those out). The person sitting at this PC grabs the
+  // arrow back immediately, before any remote hide can sneak in.
+  bridge.on("local-mouse-activity", () => {
+    agent.noteLocalPhysicalActivity();
+  });
   // PC clipboard changed → push to the web client (echo-guarded in main)
   bridge.on("clipboard-changed", (text) => {
     if (typeof text !== "string" || !text) return;
