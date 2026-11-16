@@ -405,7 +405,11 @@ void app.whenReady().then(() => {
   localMouseWatch = startLocalMouseWatch((x, y) => hidden?.webContents.send("local-mouse-activity", { x, y }));
 });
 
-app.on("before-quit", () => { quitting = true; });
+app.on("before-quit", () => {
+  quitting = true;
+  // belt-and-braces: restore the original arrow as early as possible on ANY graceful exit path
+  try { const { ensureHostCursorVisible } = require("./cursor-visibility") as typeof import("./cursor-visibility"); ensureHostCursorVisible(); } catch { /* fine */ }
+});
 app.on("will-quit", () => {
   stopPower();
   stopLanServer();

@@ -106,20 +106,47 @@ function init(): void {
 
 export interface CursorControlResult { ok: boolean; error?: string }
 
+/** Load the transparent arrow fresh from its stable on-disk copy (the system DESTROYS a cursor after SetSystemCursor takes it). */
+function loadTransparentCursor(): number {
+  try {
+    const tPath = ensureTransparentCurFile();
+    if (!tPath) return 0;
+    return user32 ? (user32.func("LoadCursorFromFileW", "uintptr", ["str16"])(tPath) as unknown as number) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Load the CURRENT machine arrow fresh: registry path first, stock aero_arrow.cur, then IDC_ARROW. */
+function loadOriginalCursor(): number {
+  try {
+    const p = readOriginalArrowPath();
+    if (p) {
+      const h = user32 ? (user32.func("LoadCursorFromFileW", "uintptr", ["str16"])(p) as unknown as number) : 0;
+      if (h) return h;
+    }
+  } catch { /* fall through to IDC_ARROW */ }
+  try {
+    const LoadCursorW = user32 ? user32.func("LoadCursorW", "uintptr", ["uintptr", "uintptr"]) : null;
+    return LoadCursorW ? (LoadCursorW(0, 32512) as unknown as number) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /** Swap the global system arrow for the transparent one (hidden everywhere), or restore it. Global by design — this is what makes the remote view show only the UI arrow. */
 export function setHostCursorVisible(visible: boolean): CursorControlResult {
   init();
-  if (!user32 || !transparentCursor || !originalCursor) return { ok: true }; // soft-fail: cursor keeps working, just stays visible
+  if (!user32) return { ok: true }; // soft-fail: cursor keeps working, just stays visible
   if (state === visible) return { ok: true };
-  try {
-    const SetSystemCursor = user32.func("SetSystemCursor", "int32", ["uintptr", "uint32"]);
-    const r = SetSystemCursor(visible ? originalCursor : transparentCursor, OCR_NORMAL);
-    if (r === 0) return { ok: false, error: "SetSystemCursor failed" };
-    state = visible;
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
+  const SetSystemCursor = user32.func("SetSystemCursor", "int32", ["uintptr", "uint32"]);
+  // fresh handle every call — cached handles can go stale or be consumed by a previous SetSystemCursor
+  const attempt = (): number => SetSystemCursor(visible ? loadOriginalCursor() : loadTransparentCursor(), OCR_NORMAL);
+  let r = attempt();
+  if (r === 0) r = attempt(); // one retry with a fresh handle — the stuck-transparent-cursor failure mode
+  if (r === 0) return { ok: false, error: "SetSystemCursor failed" };
+  state = visible;
+  return { ok: true };
 }
 
 /** Re-assert the ORIGINAL arrow — call at agent startup and at exit so the machine never stays cursorless. */
