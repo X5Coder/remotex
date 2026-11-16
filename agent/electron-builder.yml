@@ -3,6 +3,19 @@ productName: RemoteX
 copyright: Copyright © 2026 RemoteX contributors
 directories:
   output: release
+
+# release title (the tag is always v + package.json version — v5.11, matching the CI tag)
+releaseInfo:
+  releaseName: v5.11
+  releaseNotes: |
+    v5.11 — host cursor ownership state machine + fullscreen exit polish
+
+    - Agent: host OS arrow now hides the moment remote control begins and STAYS hidden while
+      you drive from the web; it reappears permanently only when someone at this machine
+      physically grabs the mouse (or the session ends). No more rapid hide/show flicker.
+    - Web: the X button in land fullscreen now returns straight to the normal small view with a
+      smooth transform FLIP (spring-out), instead of dropping into a dimmed portrait-focus state
+      where any tap afterwards replayed a janky return animation.
 npmRebuild: true # rebuild @jitsi/robotjs against the packaged Electron ABI
 files:
   - dist/**
