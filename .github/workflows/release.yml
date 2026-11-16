@@ -39,15 +39,17 @@ jobs:
           sed -i '1i #include <string.h>' node_modules/@jitsi/robotjs/src/xdisplay.c
           sed -i '1i #define _GNU_SOURCE' node_modules/@jitsi/robotjs/src/xdisplay.c
       # npm skips optional deps for the OTHER arch on macOS (runner is arm64, so the x64
-      # koffi.node never lands in node_modules and the x64.universal merge sees identical
-      # arm64 binaries in both slices). Force-install both koffi arch packages — then the
-      # per-arch files are legitimately different and electron-builder's universal build is happy.
+      # koffi.node never lands in node_modules). Pull the exact-version tarball straight from
+      # the registry and unpack it — no npm platform checks. Universal is not used; each arch
+      # dmg/zip packs from this same tree, so both slices load their native koffi at runtime.
       - if: runner.os == 'macOS'
         working-directory: agent
         run: |
           KV="$(node -p "require('./node_modules/koffi/package.json').version")"
-          npm install --no-save --os=darwin --cpu=x64 "@koromix/koffi-darwin-x64@$KV"
-          npm install --no-save --os=darwin --cpu=arm64 "@koromix/koffi-darwin-arm64@$KV"
+          npm pack "@koromix/koffi-darwin-x64@$KV" --ignore-scripts
+          mkdir -p node_modules/@koromix/koffi-darwin-x64
+          tar -xzf koromix-koffi-darwin-x64-$KV.tgz -C node_modules/@koromix/koffi-darwin-x64 --strip-components=1
+          rm koromix-koffi-darwin-x64-$KV.tgz
       - name: Build & upload to release
         working-directory: agent
         shell: bash
