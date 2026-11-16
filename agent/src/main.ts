@@ -16,7 +16,6 @@ import * as fs from "fs";
 import { loadOrCreateIdentity, createLaunchPassword } from "./config";
 import { createDriver, clipboardHash, type InputDriver } from "./input";
 import { startLanServer, lanInfo, stopLanServer } from "./lan";
-import { startLocalMouseWatch, type LocalMouseWatch } from "./local-mouse-watch";
 
 // --------------------------------------------------------------- singleton --
 const gotLock = app.requestSingleInstanceLock();
@@ -29,7 +28,6 @@ let quitting = false;
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let hidden: BrowserWindow | null = null;
-let localMouseWatch: LocalMouseWatch | null = null;
 let driver: InputDriver | null = null;
 let keepAwake: { status: string; detail: string; isAdmin: boolean; stop(): void } | null = null;
 let powerSaveBlockerIds: number[] = [];
@@ -293,19 +291,6 @@ function registerIpc() {
     return { x: 0, y: 0, w: size.width, h: size.height };
   });
 
-  ipcMain.handle("cursor:host", (_e, payload: unknown) => {
-    const visible = (payload as { visible?: unknown })?.visible !== false; // default true — restore, never trap
-    try {
-      const { setHostCursorVisible } = require("./cursor-visibility") as typeof import("./cursor-visibility");
-      const r = setHostCursorVisible(visible);
-      if (!r.ok) console.warn("[cursor] host visibility switch failed:", r.error ?? "?");
-      return r;
-    } catch (err) {
-      console.warn("[cursor] visibility module unavailable:", err);
-      return { ok: false, error: String(err) };
-    }
-  });
-
   ipcMain.handle("screen:cursorRaw", () => {
     const pos = driver?.cursorPosition() ?? { x: 0, y: 0 };
     return { x: pos.x, y: pos.y };
@@ -400,9 +385,6 @@ void app.whenReady().then(() => {
   createHiddenWindow();
   startClipboardPolling();
   startLanServer(); // LAN-mode: serves web client + LAN signaling relay
-  // Windows-only: WH_MOUSE_LL physical mouse watch — the person at THIS PC always gets
-  // the OS arrow back instantly, even while a remote session is driving remotely
-  localMouseWatch = startLocalMouseWatch((x, y) => hidden?.webContents.send("local-mouse-activity", { x, y }));
 });
 
 app.on("before-quit", () => {
@@ -413,7 +395,6 @@ app.on("before-quit", () => {
 app.on("will-quit", () => {
   stopPower();
   stopLanServer();
-  try { localMouseWatch?.stop(); } catch { /* fine */ }
   try { const { ensureHostCursorVisible } = require("./cursor-visibility") as typeof import("./cursor-visibility"); ensureHostCursorVisible(); } catch { /* fine */ }
   try { tray?.destroy(); } catch { /* fine */ }
 });

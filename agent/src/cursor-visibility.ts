@@ -1,21 +1,13 @@
 /**
- * Host cursor visibility control (Windows) — SetSystemCursor + a transparent arrow.
+ * Host cursor restore (Windows) — SetSystemCursor(IDC_ARROW, OCR_NORMAL) with fresh handles only.
  *
- * Why NOT ShowCursor()? ShowCursor's display counter is PER-THREAD: hiding the cursor from
- * our own process has no effect on drawing in OTHER windows or in the OS capture
- * (measured: GetCursorInfo stays 1; the arrow remains in the desktop/video capture).
- * The ONLY API that changes what DWM draws into every window and into every capture is
- * SetSystemCursor, which swaps the actual arrow image globally for the whole session.
+ * The host machine's OS arrow is ALWAYS VISIBLE on the host PC. It is never swapped or hidden
+ * by this build — the remote (web) client draws its own overlay arrow, and that overlay is the
+ * ONLY cursor the user sees on the remote display.
  *
- * Strategy:
- *   1. The transparent arrow (.cur) is embedded below as base64 — written to %TEMP% on first use
- *      (identical bytes every run, so its handle is stable).
- *   2. The original arrow is remembered from the registry (HKCU\Control Panel\Cursors\Arrow),
- *      falling back to %SystemRoot%\Cursors\aero_arrow.cur, then to IDC_ARROW.
- *   3. Swaps are GLOBAL BY DESIGN: the cursor is hidden everywhere while a remote session drives
- *      the mouse, and restored when control returns to this PC.
- *   4. The ORIGINAL arrow is re-asserted at agent startup and at exit — a crashed session
- *      can never leave the machine cursorless permanently.
+ * This module only provides a belt-and-braces at agent startup/exit: if for ANY reason the
+ * system arrow ever ends up in a broken state (e.g. the agent was killed without cleanup),
+ * the arrow is re-asserted from fresh handles (never the stale ones the system destroys).
  *
  * This module deliberately does NOT import Electron so the built output can be
  * required from plain Node for diagnostics.
@@ -23,136 +15,71 @@
 
 const OCR_NORMAL = 32512; // OCR_NORMAL == IDC_ARROW resource ordinal
 
-const TRANSPARENT_CUR_B64 =
-"AAACAAEAICAAAAAAAACoEAAAFgAAACgAAAAgAAAAQAAAAAEAIAAAAAAAgBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////8=";
-
 let user32: { func(name: string, ret: string, args: unknown[]): (...a: unknown[]) => number } | null = null;
-let transparentCursor = 0;
-let originalCursor = 0;
-let state: boolean | null = null; // true = original arrow, false = transparent
 let loadError: string | null = null;
 let initialized = false;
-
-function ensureTransparentCurFile(): string | null {
-  try {
-    const os = require("os");
-    const path = require("path");
-    const fs = require("fs");
-    const p = path.join(os.tmpdir(), "remotex-transparent-arrow.cur");
-    const want = Buffer.from(TRANSPARENT_CUR_B64, "base64");
-    try {
-      const cur = fs.readFileSync(p);
-      if (cur.length === want.length && cur.equals(want)) return p; // identical already
-    } catch { /* missing or stale — rewrite */ }
-    fs.writeFileSync(p, want);
-    return p;
-  } catch {
-    return null;
-  }
-}
-
-function readOriginalArrowPath(): string | null {
-  try {
-    // -EncodedCommand takes base64(UTF-16LE(script)) — zero escaping risk
-    const encoded = Buffer.from(
-      "(Get-ItemProperty -Path 'HKCU:\Control Panel\Cursors' -Name Arrow -ErrorAction SilentlyContinue).Arrow",
-      "utf16le"
-    ).toString("base64");
-    const out = require("child_process").execSync(
-      "powershell -NoProfile -EncodedCommand " + encoded,
-      { encoding: "utf8", windowsHide: true, timeout: 5000 }
-    ).trim();
-    if (out && !/^\s*$/.test(out) && out.toUpperCase() !== "NO ARROW" && require("fs").existsSync(out)) return out;
-  } catch { /* fall through */ }
-  const stock = (process.env.SystemRoot ?? "C:\Windows") + "\Cursors\aero_arrow.cur";
-  if (require("fs").existsSync(stock)) return stock;
-  return null;
-}
 
 function init(): void {
   if (initialized) return;
   initialized = true;
   if (process.platform !== "win32") {
-    loadError = "host cursor control is Windows-only";
+    loadError = "host cursor restore is Windows-only";
     return;
   }
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const koffi = require("koffi") as { load(name: string): { func(name: string, ret: string, args: unknown[]): (...a: unknown[]) => number } };
     user32 = koffi.load("user32.dll");
-
-    const tPath = ensureTransparentCurFile();
-    const LoadCursorFromFileW = user32.func("LoadCursorFromFileW", "uintptr", ["str16"]);
-    transparentCursor = tPath ? (LoadCursorFromFileW(tPath) as unknown as number) : 0;
-
-    const originalPath = readOriginalArrowPath();
-    if (originalPath) {
-      originalCursor = LoadCursorFromFileW(originalPath) as unknown as number;
-    }
-    if (!originalCursor) {
-      const LoadCursorW = user32.func("LoadCursorW", "uintptr", ["uintptr", "uintptr"]);
-      originalCursor = LoadCursorW(0, 32512) as unknown as number; // IDC_ARROW ordinal
-    }
-    if (!transparentCursor || !originalCursor) {
-      throw new Error(`cursor load failed (transparent=${transparentCursor}, original=${originalCursor})`);
-    }
   } catch (err) {
     loadError = err instanceof Error ? err.message : String(err);
     user32 = null;
-    transparentCursor = 0;
-    originalCursor = 0;
   }
 }
 
-export interface CursorControlResult { ok: boolean; error?: string }
-
-/** Load the transparent arrow fresh from its stable on-disk copy (the system DESTROYS a cursor after SetSystemCursor takes it). */
-function loadTransparentCursor(): number {
+function loadCurrentArrow(): number {
+  if (!user32) return 0;
   try {
-    const tPath = ensureTransparentCurFile();
-    if (!tPath) return 0;
-    return user32 ? (user32.func("LoadCursorFromFileW", "uintptr", ["str16"])(tPath) as unknown as number) : 0;
-  } catch {
-    return 0;
-  }
-}
-
-/** Load the CURRENT machine arrow fresh: registry path first, stock aero_arrow.cur, then IDC_ARROW. */
-function loadOriginalCursor(): number {
+    // 1) the machine's own registered arrow (HKCU\Control Panel\Cursors\Arrow) — visible, user-chosen
+    const encoded = Buffer.from(
+      "(Get-ItemProperty -Path 'HKCU:\\Control Panel\\Cursors' -Name Arrow -ErrorAction SilentlyContinue).Arrow",
+      "utf16le"
+    ).toString("base64");
+    const out = String(require("child_process").execSync(
+      "powershell -NoProfile -EncodedCommand " + encoded,
+      { encoding: "utf8", windowsHide: true, timeout: 5000 }
+    ).trim());
+    if (out && require("fs").existsSync(out)) {
+      const h = user32.func("LoadCursorFromFileW", "uintptr", ["str16"])(out) as unknown as number;
+      if (h) return h;
+    }
+  } catch { /* fall through to the stock aero arrow */ }
   try {
-    const p = readOriginalArrowPath();
-    if (p) {
-      const h = user32 ? (user32.func("LoadCursorFromFileW", "uintptr", ["str16"])(p) as unknown as number) : 0;
+    // 2) stock aero arrow, which is always present on modern Windows
+    const stock = (process.env.SystemRoot ?? "C:\\Windows") + "\\Cursors\\aero_arrow.cur";
+    if (require("fs").existsSync(stock)) {
+      const h = user32.func("LoadCursorFromFileW", "uintptr", ["str16"])(stock) as unknown as number;
       if (h) return h;
     }
   } catch { /* fall through to IDC_ARROW */ }
   try {
-    const LoadCursorW = user32 ? user32.func("LoadCursorW", "uintptr", ["uintptr", "uintptr"]) : null;
-    return LoadCursorW ? (LoadCursorW(0, 32512) as unknown as number) : 0;
+    // 3) built-in IDC_ARROW
+    const LoadCursorW = user32.func("LoadCursorW", "uintptr", ["uintptr", "uintptr"]);
+    return LoadCursorW(0, 32512) as unknown as number;
   } catch {
     return 0;
   }
 }
 
-/** Swap the global system arrow for the transparent one (hidden everywhere), or restore it. Global by design — this is what makes the remote view show only the UI arrow. */
-export function setHostCursorVisible(visible: boolean): CursorControlResult {
-  init();
-  if (!user32) return { ok: true }; // soft-fail: cursor keeps working, just stays visible
-  if (state === visible) return { ok: true };
-  const SetSystemCursor = user32.func("SetSystemCursor", "int32", ["uintptr", "uint32"]);
-  // fresh handle every call — cached handles can go stale or be consumed by a previous SetSystemCursor
-  const attempt = (): number => SetSystemCursor(visible ? loadOriginalCursor() : loadTransparentCursor(), OCR_NORMAL);
-  let r = attempt();
-  if (r === 0) r = attempt(); // one retry with a fresh handle — the stuck-transparent-cursor failure mode
-  if (r === 0) return { ok: false, error: "SetSystemCursor failed" };
-  state = visible;
-  return { ok: true };
-}
-
-/** Re-assert the ORIGINAL arrow — call at agent startup and at exit so the machine never stays cursorless. */
+/** Re-assert the machine's system arrow (call at agent startup and at exit — a crash can never leave the machine cursorless). */
 export function ensureHostCursorVisible(): void {
-  state = null;
-  setHostCursorVisible(true);
+  init();
+  if (!user32) return;
+  const handle = loadCurrentArrow();
+  if (!handle) return;
+  const SetSystemCursor = user32.func("SetSystemCursor", "int32", ["uintptr", "uint32"]);
+  // fresh handle on every call — the system destroys the cursor after SetSystemCursor takes it
+  if (SetSystemCursor(handle, OCR_NORMAL) !== 0) return;
+  SetSystemCursor(loadCurrentArrow(), OCR_NORMAL); // one retry with a fresh load
 }
 
 /** Diagnostics — null when the Win32 path is available. */

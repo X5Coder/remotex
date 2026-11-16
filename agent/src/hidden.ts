@@ -26,9 +26,6 @@ import {
   type HelloMessage,
 } from "@remotex/protocol";
 
-/** Hidden window is a plain browser context — `process` may not exist there. Guard every use. */
-const debugEnabled = () => typeof process !== "undefined" && !!process.env?.REMOTEX_INPUT_LOG;
-
 const APP_ID = "remotex-1";
 const BITRATE_LADDER = [20_000_000, 12_000_000, 8_000_000, 4_000_000];
 const FPS_FLOOR = 45;
@@ -84,31 +81,6 @@ class HiddenAgent {
   private cursorTimer: number | null = null;
   private lastCursor = { x: -1, y: -1 };
   private curPublished = 0;
-  /** last position the REMOTE asked us to move to (px, robotjs coordinate space) — null when no remote move is in flight */
-  private expectedMovePx: { x: number; y: number } | null = null;
-  /**
-   * Cursor ownership state machine (replaces per-poll deadband arbitration, which strobed at 50 Hz):
-   *   local  — the person at THIS PC is driving: the OS arrow stays visible, forever,
-   *            until the next remote input claims the cursor.
-   *   remote — a web client is driving: the OS arrow is hidden once, held hidden, and only
-   *            a sustained physical mouse grab (3 consecutive polls diverging from the injected
-   *            position) hands ownership back to local.
-   */
-  private cursorMode: "local" | "remote" = "local";
-  private cursorMismatchPolls = 0;
-  /** last raw sample seen by the poll — divergence reference when no remote target is known */
-  private lastRawSample: { x: number; y: number } | null = null;
-  /** timestamp of the last REAL remote input (pointer/keyboard command) — drives the idle-restore */
-  private lastRemoteInputAt = 0;
-  /** ms of remote silence after which the OS arrow is handed back to the local desktop (catch-all for dead sessions / idle browsers) */
-  private static readonly REMOTE_IDLE_RESTORE_MS = 3000;
-  /** ms of PHYSICAL silence after which a remote session may re-hide the host arrow — local touch always wins for this window */
-  private static readonly LOCAL_PHYSICAL_PRIORITY_MS = 700;
-  /** number of cursor-moving commands whose injection has not been applied by the main process yet */
-  private inflightMoves = 0;
-  /** last time a PHYSICAL mouse/trackpad report landed at this machine (WH_MOUSE_LL) — the local desktop owns the arrow from that instant */
-  private lastPhysicalAt = 0;
-  private hostCursorVisible = true;
   private bitrateRung = 0;
   private statsStrikes = { lowFps: 0, loss: 0, good: 0 };
   private started = false;
@@ -194,9 +166,7 @@ class HiddenAgent {
       if (msg.kind === "ping") { void reportRtt(Math.max(0, Math.floor(performance.now() - msg.t))); return; }
       if (msg.kind === "move") {
         if (!this.tracker.accept(msg.seq)) return;
-        this.claimRemoteCursor();
-        this.noteRemoteMovePx(msg.x, msg.y);
-        this.injectCounted({ kind: "move", x: msg.x, y: msg.y });
+        void bridge.invoke("input:inject", { kind: "move", x: msg.x, y: msg.y });
         return;
       }
     });
@@ -242,7 +212,6 @@ class HiddenAgent {
       log("peer left", peerId);
       this.peerId = null;
       this.stopLoops();
-      this.releaseRemoteCursor(); // session ended — the user must see their pointer again
       // release any modifiers held for this session
       void bridge.invoke("input:inject", { kind: "reset" });
       void reportStatus("Session ended — ready for a new connection", "waiting");
@@ -278,117 +247,7 @@ class HiddenAgent {
     log("releasing stale seat", old);
     this.peerId = null;
     this.stopLoops();
-    this.releaseRemoteCursor(); // hand the cursor back before the re-dial
     void bridge.invoke("input:inject", { kind: "reset" });
-  }
-
-  /**
-   * A remote input event claims the cursor: from here on the OS arrow is HIDDEN until
-   * a physical mouse grab on THIS machine is proven. Called synchronously on every remote
-   * command — the hide never waits for position polling, so the arrow cannot flicker.
-   */
-  private claimRemoteCursor() {
-    const now = performance.now();
-    this.lastRemoteInputAt = now; // always record — drives the idle-restore window
-    // local priority: a physical human at THIS machine owns the arrow for LOCAL_PHYSICAL_PRIORITY_MS
-    // after their last touch — the remote page (same machine or any device) never steals it back
-    if (now - this.lastPhysicalAt < HiddenAgent.LOCAL_PHYSICAL_PRIORITY_MS) {
-      this.cursorMismatchPolls = 0;
-      return;
-    }
-    this.cursorMode = "remote";
-    this.cursorMismatchPolls = 0;
-    this.setHostCursorVisible(false);
-  }
-
-  /** Hand the cursor back to this PC and show the OS arrow — permanent, until the next remote input. */
-  private releaseRemoteCursor() {
-    this.cursorMode = "local";
-    this.expectedMovePx = null;
-    this.cursorMismatchPolls = 0;
-    this.lastRawSample = null;
-    this.setHostCursorVisible(true);
-  }
-
-  /**
-   * Physical hardware mouse/trackpad input touched THIS machine (WH_MOUSE_LL — never fires
-   * for SendInput injections). The person at this PC owns the cursor: restore the OS arrow
-   * the moment a physical report arrives. The LAUNCH-PRIORITY window (LOCAL_PHYSICAL_PRIORITY_MS,
-   * 700 ms) keeps the arrow shown across a same-machine page relay and across a remote claim too.
-   */
-  noteLocalPhysicalActivity() {
-    const wasHidden = this.cursorMode === "remote" || this.hostCursorVisible === false;
-    this.lastPhysicalAt = performance.now();
-    if (wasHidden) {
-      log("[cursor] physical mouse input at this machine — restoring local arrow");
-      this.releaseRemoteCursor();
-    }
-  }
-
-  /**
-   * Fire an input:inject and track it as an in-flight cursor move. The promise resolves when the
-   * main process has ACTUALLY applied the command (post input-chain), so the ownership poll never
-   * mistakes a pending remote jump — delayed behind a typing burst — for a physical mouse grab.
-   */
-  private injectCounted(msg: Record<string, unknown>) {
-    this.inflightMoves++;
-    void bridge.invoke("input:inject", msg)
-      .catch(() => { /* agent down — the session dies elsewhere */ })
-      .finally(() => { this.inflightMoves = Math.max(0, this.inflightMoves - 1); });
-  }
-
-  /**
-   * Divergence check, remote mode only, called once per poll (50 Hz).
-   * A remote injection JUMPS the cursor onto the target (dx≈0). A physical mouse grab on
-   * this machine moves it anywhere else; 30 px of slack + 3 consecutive polls (~60 ms) of
-   * evidence are required before ownership returns to "local" — one noisy sample can never
-   * strobe the global system cursor. In local mode the arrow is NEVER auto-hidden: only a
-   * remote input event can hide it.
-   */
-  private checkCursorOwnership(raw: { x: number; y: number }) {
-    // local priority: physical hardware at this PC owns the arrow for LOCAL_PHYSICAL_PRIORITY_MS —
-    // a remote claim can only re-hide it after physical silence (never mid-touch)
-    if (performance.now() - this.lastPhysicalAt < HiddenAgent.LOCAL_PHYSICAL_PRIORITY_MS) {
-      if (this.cursorMode === "remote" || this.hostCursorVisible === false) {
-        log("[cursor] physical mouse/kb activity at this machine — keeping the local arrow");
-        this.releaseRemoteCursor();
-      }
-      this.lastRawSample = raw;
-      this.cursorMismatchPolls = 0;
-      return;
-    }
-    if (this.cursorMode !== "remote") {
-      this.lastRawSample = raw;
-      this.cursorMismatchPolls = 0;
-      return;
-    }
-    // CATCH-ALL: no real remote input for REMOTE_IDLE_RESTORE_MS means nobody is actively driving —
-    // a live web session that was left idle, or a dead/frozen browser tab the agent never got a clean
-    // bye from. Hand the arrow back to the local desktop; any remote command re-claims it instantly.
-    if (performance.now() - this.lastRemoteInputAt > HiddenAgent.REMOTE_IDLE_RESTORE_MS) {
-      log("[cursor] remote idle — restoring host arrow for the local desktop");
-      this.releaseRemoteCursor();
-      return;
-    }
-    // a cursor-moving command is queued/applying in the main process — the OS cursor may not
-    // be at the expected spot yet (typing bursts delay moves). Divergence seen now is ours,
-    // never a physical grab.
-    if (this.inflightMoves > 0) {
-      this.lastRawSample = raw;
-      this.cursorMismatchPolls = 0;
-      return;
-    }
-    // reference: the last injected remote target (authoritative). Without one, any sustained
-    // movement at all means the local user grabbed the mouse (nobody else moves it in remote mode).
-    const ref = this.expectedMovePx ?? this.lastRawSample;
-    this.lastRawSample = raw;
-    if (!ref) { this.cursorMismatchPolls = 0; return; }
-    const dx = Math.abs(raw.x - ref.x), dy = Math.abs(raw.y - ref.y);
-    if (dx <= 30 && dy <= 30) { this.cursorMismatchPolls = 0; return; }
-    if (++this.cursorMismatchPolls >= 3) {
-      log("[cursor] physical mouse grab detected — restoring host arrow for local control");
-      this.releaseRemoteCursor();
-    }
   }
 
   private async tuneSender(peerId: string) {
@@ -479,8 +338,6 @@ class HiddenAgent {
     if (!this.peerId) return;
     try {
       const raw = (await bridge.invoke("screen:cursorRaw")) as { x: number; y: number };
-      // host cursor ownership arbitration — see checkCursorOwnership; never toggles per-poll
-      this.checkCursorOwnership(raw);
       const b = (await bridge.invoke("screen:bounds")) as { x: number; y: number; w: number; h: number };
       const nx = clamp01((raw.x - b.x) / Math.max(1, b.w - 1)), ny = clamp01((raw.y - b.y) / Math.max(1, b.h - 1));
       if (!force && Math.abs(nx - this.lastCursor.x) < 0.0008 && Math.abs(ny - this.lastCursor.y) < 0.0008) return;
@@ -495,26 +352,6 @@ class HiddenAgent {
       this.curPublished++;
       if (this.curPublished === 1) log("cursor dual-line beacons active (line1: fast binary + line2: ctl JSON)");
     } catch { /* ignore transient */ }
-  }
-
-  private async setHostCursorVisible(visible: boolean) {
-    if (this.hostCursorVisible === visible) return;
-    this.hostCursorVisible = visible;
-    try {
-      await bridge.invoke("cursor:host", { visible });
-      log(visible ? "[cursor] host arrow SHOWN (local use)" : "[cursor] host arrow HIDDEN (remote control)");
-    } catch { /* soft-fail */ }
-  }
-
-  private noteRemoteMovePx(x: number, y: number) {
-    bridge.invoke("screen:bounds").then((raw) => {
-      const b = raw as { x: number; y: number; w: number; h: number };
-      this.expectedMovePx = { x: Math.round(clamp01(x) * (b.w - 1)), y: Math.round(clamp01(y) * (b.h - 1)) };
-      if (debugEnabled()) console.log(`[cursor-debug] bounds=${b.w}x${b.h} expect=(${this.expectedMovePx.x},${this.expectedMovePx.y})`);
-    }).catch((e: unknown) => {
-      if (debugEnabled()) console.log("[cursor-debug] screen:bounds failed:", String(e));
-      this.expectedMovePx = null;
-    });
   }
 
   private async sampleStats() {
@@ -569,13 +406,8 @@ class HiddenAgent {
   }
 
   private async handleCtl(msg: CtlMessage) {
-    // any remote POINTER/KEYBOARD command proves a remote operator is in control → claim the cursor.
-    // 'curping' is a client-side 1 Hz keepalive, NOT operator intent — it must never keep the host arrow hidden forever.
-    if (msg.kind === "down" || msg.kind === "up" || msg.kind === "click" || msg.kind === "dblclick"
-      || msg.kind === "key" || msg.kind === "text" || msg.kind === "paste") this.claimRemoteCursor();
     switch (msg.kind) {
       case "down": case "up": {
-        this.noteRemoteMovePx(msg.x, msg.y);
         if (msg.kind === "down") {
           await this.injectAbs(msg.x, msg.y);
           await bridge.invoke("input:inject", { kind: "button", button: msg.button, down: true });
@@ -586,13 +418,11 @@ class HiddenAgent {
         return;
       }
       case "click": {
-        this.noteRemoteMovePx(msg.x, msg.y);
-        this.injectCounted({ kind: "click", button: msg.button, x: msg.x, y: msg.y, double: false });
+        void bridge.invoke("input:inject", { kind: "click", button: msg.button, x: msg.x, y: msg.y, double: false });
         return;
       }
       case "dblclick": {
-        this.noteRemoteMovePx(msg.x, msg.y);
-        this.injectCounted({ kind: "click", button: msg.button, x: msg.x, y: msg.y, double: true });
+        void bridge.invoke("input:inject", { kind: "click", button: msg.button, x: msg.x, y: msg.y, double: true });
         return;
       }
       case "key":
@@ -610,7 +440,6 @@ class HiddenAgent {
         return;
       }
       case "bye": {
-        this.releaseRemoteCursor(); // session over — always restore the host arrow
         await bridge.invoke("session:ended-by-user");
         return;
       }
@@ -625,7 +454,7 @@ class HiddenAgent {
   }
 
   private async injectAbs(x: number, y: number) {
-    this.injectCounted({ kind: "move", x, y });
+    void bridge.invoke("input:inject", { kind: "move", x, y });
   }
 
   /** Stop current session, then re-arm the room for the next device. */
@@ -633,7 +462,6 @@ class HiddenAgent {
     this.stopLoops();
     const peer = this.peerId;
     this.peerId = null;
-    this.releaseRemoteCursor(); // rearm — restore the host arrow before the next session can begin
     try {
       if (peer && this.ctl) {
         try { (this.ctl as unknown as { send: (d: string, o?: { target: string }) => Promise<void> }).send(encodeCtl({ kind: "bye" }), { target: peer }); } catch { /* gone */ }
@@ -660,12 +488,6 @@ const agent = new HiddenAgent();
 window.addEventListener("DOMContentLoaded", () => {
   // user pressed "Stop session" in the agent window
   bridge.on("session:stop", () => void agent.rearm());
-  // the OS reported a PHYSICAL USB/Bluetooth mouse/trackpad event at THIS machine (not a SendInput
-  // injection — the low-level hook filters those out). The person sitting at this PC grabs the
-  // arrow back immediately, before any remote hide can sneak in.
-  bridge.on("local-mouse-activity", () => {
-    agent.noteLocalPhysicalActivity();
-  });
   // PC clipboard changed → push to the web client (echo-guarded in main)
   bridge.on("clipboard-changed", (text) => {
     if (typeof text !== "string" || !text) return;

@@ -75,7 +75,8 @@ Browser (client)  <== WebRTC P2P (H.264 video / data) ==>  Electron agent (host 
   every pointer event carries `x,y`; clicks are sent **immediately** (no tap delay â€”
   the OS merges double clicks).
 - **Cursor feel:** the cursor is drawn locally on the client (0 ms perceived); the agent
-  corrects it with `cur` messages at 10 Hz.
+  corrects it with `cur` messages at 10 Hz. The host machine's own OS arrow is never hidden —
+  it stays on screen the whole time (older builds swapped it with a transparent glyph; that's gone).
 - **Keys:** physical `code` + `down/up` edges with modifiers; non-ASCII text goes via
   clipboard+paste, never per-key typing. Clipboard sync is bidirectional (250 ms poll,
   SHA-256 echo guard, saveâ†’Vâ†’restore flow).
