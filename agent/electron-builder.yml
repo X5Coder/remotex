@@ -4,9 +4,9 @@ copyright: Copyright © 2026 RemoteX contributors
 directories:
   output: release
 
-# release title (the tag is always v + package.json version — v5.11, matching the CI tag)
+# release title (the tag is always v + package.json version — v5.11.0, matching the CI tag)
 releaseInfo:
-  releaseName: v5.11
+  releaseName: v5.11.0
   releaseNotes: |
     v5.11 — host cursor ownership state machine + fullscreen exit polish
 
