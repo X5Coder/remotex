@@ -102,6 +102,8 @@ class HiddenAgent {
   private lastRemoteInputAt = 0;
   /** ms of remote silence after which the OS arrow is handed back to the local desktop (catch-all for dead sessions / idle browsers) */
   private static readonly REMOTE_IDLE_RESTORE_MS = 3000;
+  /** ms of PHYSICAL silence after which a remote session may re-hide the host arrow — local touch always wins for this window */
+  private static readonly LOCAL_PHYSICAL_PRIORITY_MS = 700;
   /** number of cursor-moving commands whose injection has not been applied by the main process yet */
   private inflightMoves = 0;
   /** last time a PHYSICAL mouse/trackpad report landed at this machine (WH_MOUSE_LL) — the local desktop owns the arrow from that instant */
@@ -288,9 +290,9 @@ class HiddenAgent {
   private claimRemoteCursor() {
     const now = performance.now();
     this.lastRemoteInputAt = now; // always record — drives the idle-restore window
-    if (now - this.lastPhysicalAt < 150) {
-      // the web client is relaying THIS machine's own mouse (same laptop, same screen) —
-      // the person sitting at this PC owns the arrow; the remote page must not steal it
+    // local priority: a physical human at THIS machine owns the arrow for LOCAL_PHYSICAL_PRIORITY_MS
+    // after their last touch — the remote page (same machine or any device) never steals it back
+    if (now - this.lastPhysicalAt < HiddenAgent.LOCAL_PHYSICAL_PRIORITY_MS) {
       this.cursorMismatchPolls = 0;
       return;
     }
@@ -311,8 +313,8 @@ class HiddenAgent {
   /**
    * Physical hardware mouse/trackpad input touched THIS machine (WH_MOUSE_LL — never fires
    * for SendInput injections). The person at this PC owns the cursor: restore the OS arrow
-   * the moment a physical report arrives. Remote claims within 150 ms of a physical event are
-   * treated as the browser relaying THIS machine's own mouse and are ignored.
+   * the moment a physical report arrives. The LAUNCH-PRIORITY window (LOCAL_PHYSICAL_PRIORITY_MS,
+   * 700 ms) keeps the arrow shown across a same-machine page relay and across a remote claim too.
    */
   noteLocalPhysicalActivity() {
     const wasHidden = this.cursorMode === "remote" || this.hostCursorVisible === false;
@@ -344,6 +346,17 @@ class HiddenAgent {
    * remote input event can hide it.
    */
   private checkCursorOwnership(raw: { x: number; y: number }) {
+    // local priority: physical hardware at this PC owns the arrow for LOCAL_PHYSICAL_PRIORITY_MS —
+    // a remote claim can only re-hide it after physical silence (never mid-touch)
+    if (performance.now() - this.lastPhysicalAt < HiddenAgent.LOCAL_PHYSICAL_PRIORITY_MS) {
+      if (this.cursorMode === "remote" || this.hostCursorVisible === false) {
+        log("[cursor] physical mouse/kb activity at this machine — keeping the local arrow");
+        this.releaseRemoteCursor();
+      }
+      this.lastRawSample = raw;
+      this.cursorMismatchPolls = 0;
+      return;
+    }
     if (this.cursorMode !== "remote") {
       this.lastRawSample = raw;
       this.cursorMismatchPolls = 0;

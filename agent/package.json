@@ -1,6 +1,6 @@
 {
   "name": "remotex-agent",
-  "version": "5.13.1",
+  "version": "5.14.0",
   "description": "RemoteX Agent — the companion app that runs on the computer you want to control. Screen capture, input injection, keep-awake, single-session secure access.",
   "license": "MIT",
   "private": true,

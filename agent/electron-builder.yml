@@ -4,21 +4,24 @@ copyright: Copyright © 2026 RemoteX contributors
 directories:
   output: release
 
-# release title (the tag is always v + package.json version — v5.13.1, matching the CI tag)
+# release title (the tag is always v + package.json version — v5.14.0, matching the CI tag)
 releaseInfo:
-  releaseName: v5.13.1
+  releaseName: v5.14.0
   releaseNotes: |
-    v5.13.1 — cursor restore hardening + WH_MOUSE_LL physical mouse watch
+    v5.14.0 — LOCAL WINS: physical mouse/trackpad owns the host arrow while in use
 
-    - Agent: SetSystemCursor now uses FRESHLY loaded cursor handles on every show/hide
-      (the system DESTROYS cursors it takes — the cached handles went stale and the
-      restore failed silently, leaving this PC permanently cursorless after a previous
-      session/crash). One automatic retry added. before-quit ALSO re-asserts the arrow.
-    - Agent (v5.13): WH_MOUSE_LL low-level hook in a worker thread — any real
-      USB/Bluetooth mouse / laptop trackpad report instantly hands cursor ownership back
-      to the local desktop, even while a remote session is driving. SendInput injections
-      are flagged INJECTED and filtered out (same-machine browser relays are ignored
-      within 150 ms of a physical touch). v5.13.0 vs this: visibility only.
+    - Agent: the local person now keeps the OS arrow with total priority — ANY physical
+      hardware report (WH_MOUSE_LL) restores instant local ownership AND suppresses the
+      remote hide for 700 ms after the last physical touch (was: 150 ms). A same-machine
+      browser relay can no longer hide the arrow mid-touch; a different-machine remote can
+      still hide it once physically quiet.
+    - Agent (v5.13.1): SetSystemCursor now uses FRESH cursor handles + auto-retry (the system
+      destroys cursors after SetSystemCursor takes them, so restores used to fail silently —
+      this PC could stay permanently cursorless after a session/crash). before-quit also restores.
+    - Agent (v5.13): WH_MOUSE_LL watch in a worker thread — real touch restores instantly,
+      SendInput injections are filtered out.
+    - Web (v5.11): the X button in land fullscreen now returns straight to the normal small
+      view with a smooth transform FLIP (spring-out). No animation afterwards.
 npmRebuild: true # rebuild @jitsi/robotjs against the packaged Electron ABI
 files:
   - dist/**
