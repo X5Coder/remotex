@@ -285,6 +285,19 @@ function registerIpc() {
     return { x: 0, y: 0, w: size.width, h: size.height };
   });
 
+  ipcMain.handle("cursor:host", (_e, payload: unknown) => {
+    const visible = (payload as { visible?: unknown })?.visible !== false; // default true — restore, never trap
+    try {
+      const { setHostCursorVisible } = require("./cursor-visibility") as typeof import("./cursor-visibility");
+      const r = setHostCursorVisible(visible);
+      if (!r.ok) console.warn("[cursor] host visibility switch failed:", r.error ?? "?");
+      return r;
+    } catch (err) {
+      console.warn("[cursor] visibility module unavailable:", err);
+      return { ok: false, error: String(err) };
+    }
+  });
+
   ipcMain.handle("screen:cursorRaw", () => {
     const pos = driver?.cursorPosition() ?? { x: 0, y: 0 };
     return { x: pos.x, y: pos.y };
@@ -365,6 +378,8 @@ function stopSession() {
 // ---------------------------------------------------------------- lifecycle --
 void app.whenReady().then(() => {
   if (!gotLock) return;
+  // normalize the host cursor to VISIBLE at launch — self-heals any stuck session state
+  try { const { ensureHostCursorVisible } = require("./cursor-visibility") as typeof import("./cursor-visibility"); ensureHostCursorVisible(); } catch { /* soft-fail */ }
   const size = screen.getPrimaryDisplay().size;
   driver = createDriver({ width: size.width, height: size.height });
   installDisplayCaptureHandlers();
@@ -381,6 +396,7 @@ app.on("before-quit", () => { quitting = true; });
 app.on("will-quit", () => {
   stopPower();
   stopLanServer();
+  try { const { ensureHostCursorVisible } = require("./cursor-visibility") as typeof import("./cursor-visibility"); ensureHostCursorVisible(); } catch { /* fine */ }
   try { tray?.destroy(); } catch { /* fine */ }
 });
 

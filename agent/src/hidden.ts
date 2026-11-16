@@ -26,6 +26,9 @@ import {
   type HelloMessage,
 } from "@remotex/protocol";
 
+/** Hidden window is a plain browser context — `process` may not exist there. Guard every use. */
+const debugEnabled = () => typeof process !== "undefined" && !!process.env?.REMOTEX_INPUT_LOG;
+
 const APP_ID = "remotex-1";
 const BITRATE_LADDER = [20_000_000, 12_000_000, 8_000_000, 4_000_000];
 const FPS_FLOOR = 45;
@@ -81,6 +84,9 @@ class HiddenAgent {
   private cursorTimer: number | null = null;
   private lastCursor = { x: -1, y: -1 };
   private curPublished = 0;
+  /** last position the REMOTE asked us to move to (px, robotjs coordinate space) — null when no remote move is in flight */
+  private expectedMovePx: { x: number; y: number } | null = null;
+  private hostCursorVisible = true;
   private bitrateRung = 0;
   private statsStrikes = { lowFps: 0, loss: 0, good: 0 };
   private started = false;
@@ -166,6 +172,7 @@ class HiddenAgent {
       if (msg.kind === "ping") { void reportRtt(Math.max(0, Math.floor(performance.now() - msg.t))); return; }
       if (msg.kind === "move") {
         if (!this.tracker.accept(msg.seq)) return;
+        this.noteRemoteMovePx(msg.x, msg.y);
         void bridge.invoke("input:inject", { kind: "move", x: msg.x, y: msg.y });
         return;
       }
@@ -212,6 +219,9 @@ class HiddenAgent {
       log("peer left", peerId);
       this.peerId = null;
       this.stopLoops();
+      this.expectedMovePx = null;
+      this.hostCursorVisible = true;
+      void bridge.invoke("cursor:host", { visible: true }); // always restore on session end — the user must see their pointer again
       // release any modifiers held for this session
       void bridge.invoke("input:inject", { kind: "reset" });
       void reportStatus("Session ended — ready for a new connection", "waiting");
@@ -338,6 +348,14 @@ class HiddenAgent {
     if (!this.peerId) return;
     try {
       const raw = (await bridge.invoke("screen:cursorRaw")) as { x: number; y: number };
+      // host cursor visibility arbitration: remote movement hides the host arrow (UI arrow takes over),
+      // any other position (someone using the physical mouse) restores it.
+      if (this.expectedMovePx) {
+        const dx = Math.abs(raw.x - this.expectedMovePx.x), dy = Math.abs(raw.y - this.expectedMovePx.y);
+        if (debugEnabled()) console.log(`[cursor-check] raw=(${raw.x.toFixed(1)},${raw.y.toFixed(1)}) expect=(${this.expectedMovePx.x},${this.expectedMovePx.y}) dx=${dx.toFixed(1)} dy=${dy.toFixed(1)} visible=${this.hostCursorVisible}`);
+        if (dx <= 5 && dy <= 5) this.setHostCursorVisible(false);
+        else this.setHostCursorVisible(true);
+      }
       const b = (await bridge.invoke("screen:bounds")) as { x: number; y: number; w: number; h: number };
       const nx = clamp01((raw.x - b.x) / Math.max(1, b.w - 1)), ny = clamp01((raw.y - b.y) / Math.max(1, b.h - 1));
       if (!force && Math.abs(nx - this.lastCursor.x) < 0.0008 && Math.abs(ny - this.lastCursor.y) < 0.0008) return;
@@ -352,6 +370,26 @@ class HiddenAgent {
       this.curPublished++;
       if (this.curPublished === 1) log("cursor dual-line beacons active (line1: fast binary + line2: ctl JSON)");
     } catch { /* ignore transient */ }
+  }
+
+  private async setHostCursorVisible(visible: boolean) {
+    if (this.hostCursorVisible === visible) return;
+    this.hostCursorVisible = visible;
+    try {
+      await bridge.invoke("cursor:host", { visible });
+      log(visible ? "[cursor] host arrow SHOWN (local use)" : "[cursor] host arrow HIDDEN (remote control)");
+    } catch { /* soft-fail */ }
+  }
+
+  private noteRemoteMovePx(x: number, y: number) {
+    bridge.invoke("screen:bounds").then((raw) => {
+      const b = raw as { x: number; y: number; w: number; h: number };
+      this.expectedMovePx = { x: Math.round(clamp01(x) * (b.w - 1)), y: Math.round(clamp01(y) * (b.h - 1)) };
+      if (debugEnabled()) console.log(`[cursor-debug] bounds=${b.w}x${b.h} expect=(${this.expectedMovePx.x},${this.expectedMovePx.y})`);
+    }).catch((e: unknown) => {
+      if (debugEnabled()) console.log("[cursor-debug] screen:bounds failed:", String(e));
+      this.expectedMovePx = null;
+    });
   }
 
   private async sampleStats() {
@@ -408,6 +446,7 @@ class HiddenAgent {
   private async handleCtl(msg: CtlMessage) {
     switch (msg.kind) {
       case "down": case "up": {
+        this.noteRemoteMovePx(msg.x, msg.y);
         if (msg.kind === "down") {
           await this.injectAbs(msg.x, msg.y);
           await bridge.invoke("input:inject", { kind: "button", button: msg.button, down: true });
@@ -418,10 +457,12 @@ class HiddenAgent {
         return;
       }
       case "click": {
+        this.noteRemoteMovePx(msg.x, msg.y);
         await bridge.invoke("input:inject", { kind: "click", button: msg.button, x: msg.x, y: msg.y, double: false });
         return;
       }
       case "dblclick": {
+        this.noteRemoteMovePx(msg.x, msg.y);
         await bridge.invoke("input:inject", { kind: "click", button: msg.button, x: msg.x, y: msg.y, double: true });
         return;
       }
@@ -439,9 +480,13 @@ class HiddenAgent {
         await this.publishCursor(true);
         return;
       }
-      case "bye":
+      case "bye": {
+        this.expectedMovePx = null;
+        this.hostCursorVisible = true;
+        void bridge.invoke("cursor:host", { visible: true }); // session over — always restore the host arrow
         await bridge.invoke("session:ended-by-user");
         return;
+      }
       default:
         return; // hello/clipboard/ack are not inputs
     }
@@ -461,6 +506,9 @@ class HiddenAgent {
     this.stopLoops();
     const peer = this.peerId;
     this.peerId = null;
+    this.expectedMovePx = null;
+    this.hostCursorVisible = true;
+    void bridge.invoke("cursor:host", { visible: true }); // rearm — restore before the next session can begin
     try {
       if (peer && this.ctl) {
         try { (this.ctl as unknown as { send: (d: string, o?: { target: string }) => Promise<void> }).send(encodeCtl({ kind: "bye" }), { target: peer }); } catch { /* gone */ }
