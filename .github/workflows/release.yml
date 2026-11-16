@@ -32,10 +32,22 @@ jobs:
       - working-directory: agent
         run: npm ci && npm run build
       # GCC 14 treats implicit function declarations as errors; @jitsi/robotjs' xdisplay.c
-      # calls strdup without one. Inject _GNU_SOURCE before electron-builder's native rebuild.
+      # calls strdup with neither _GNU_SOURCE nor <string.h>. Inject both before the rebuild.
       - if: runner.os == 'Linux'
         working-directory: agent
-        run: "sed -i '1i #define _GNU_SOURCE' node_modules/@jitsi/robotjs/src/xdisplay.c"
+        run: |
+          sed -i '1i #include <string.h>' node_modules/@jitsi/robotjs/src/xdisplay.c
+          sed -i '1i #define _GNU_SOURCE' node_modules/@jitsi/robotjs/src/xdisplay.c
+      # npm skips optional deps for the OTHER arch on macOS (runner is arm64, so the x64
+      # koffi.node never lands in node_modules and the x64.universal merge sees identical
+      # arm64 binaries in both slices). Force-install both koffi arch packages — then the
+      # per-arch files are legitimately different and electron-builder's universal build is happy.
+      - if: runner.os == 'macOS'
+        working-directory: agent
+        run: |
+          KV="$(node -p "require('./node_modules/koffi/package.json').version")"
+          npm install --no-save --os=darwin --cpu=x64 "@koromix/koffi-darwin-x64@$KV"
+          npm install --no-save --os=darwin --cpu=arm64 "@koromix/koffi-darwin-arm64@$KV"
       - name: Build & upload to release
         working-directory: agent
         shell: bash
