@@ -58,7 +58,7 @@ jobs:
         run: |
           case "${{ runner.os }}" in
             Windows) npx electron-builder --win --x64 --arm64 --publish always ;;
-            macOS)   npx electron-builder --mac --universal --publish always ;;
+            macOS)   npx electron-builder --mac --publish always ;;
             Linux)   npx electron-builder --linux AppImage deb rpm --publish always ;;
           esac
 

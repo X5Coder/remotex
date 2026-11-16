@@ -4,6 +4,10 @@
   "description": "RemoteX Agent — the companion app that runs on the computer you want to control. Screen capture, input injection, keep-awake, single-session secure access.",
   "license": "MIT",
   "private": true,
+  "author": {
+    "name": "RemoteX Contributors",
+    "email": "remotex@users.noreply.github.com"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/X5Coder/remotex.git"
