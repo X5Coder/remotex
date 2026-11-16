@@ -86,6 +86,20 @@ class HiddenAgent {
   private curPublished = 0;
   /** last position the REMOTE asked us to move to (px, robotjs coordinate space) — null when no remote move is in flight */
   private expectedMovePx: { x: number; y: number } | null = null;
+  /**
+   * Cursor ownership state machine (replaces per-poll deadband arbitration, which strobed at 50 Hz):
+   *   local  — the person at THIS PC is driving: the OS arrow stays visible, forever,
+   *            until the next remote input claims the cursor.
+   *   remote — a web client is driving: the OS arrow is hidden once, held hidden, and only
+   *            a sustained physical mouse grab (3 consecutive polls diverging from the injected
+   *            position) hands ownership back to local.
+   */
+  private cursorMode: "local" | "remote" = "local";
+  private cursorMismatchPolls = 0;
+  /** last raw sample seen by the poll — divergence reference when no remote target is known */
+  private lastRawSample: { x: number; y: number } | null = null;
+  /** number of cursor-moving commands whose injection has not been applied by the main process yet */
+  private inflightMoves = 0;
   private hostCursorVisible = true;
   private bitrateRung = 0;
   private statsStrikes = { lowFps: 0, loss: 0, good: 0 };
@@ -172,8 +186,9 @@ class HiddenAgent {
       if (msg.kind === "ping") { void reportRtt(Math.max(0, Math.floor(performance.now() - msg.t))); return; }
       if (msg.kind === "move") {
         if (!this.tracker.accept(msg.seq)) return;
+        this.claimRemoteCursor();
         this.noteRemoteMovePx(msg.x, msg.y);
-        void bridge.invoke("input:inject", { kind: "move", x: msg.x, y: msg.y });
+        this.injectCounted({ kind: "move", x: msg.x, y: msg.y });
         return;
       }
     });
@@ -219,9 +234,7 @@ class HiddenAgent {
       log("peer left", peerId);
       this.peerId = null;
       this.stopLoops();
-      this.expectedMovePx = null;
-      this.hostCursorVisible = true;
-      void bridge.invoke("cursor:host", { visible: true }); // always restore on session end — the user must see their pointer again
+      this.releaseRemoteCursor(); // session ended — the user must see their pointer again
       // release any modifiers held for this session
       void bridge.invoke("input:inject", { kind: "reset" });
       void reportStatus("Session ended — ready for a new connection", "waiting");
@@ -257,7 +270,75 @@ class HiddenAgent {
     log("releasing stale seat", old);
     this.peerId = null;
     this.stopLoops();
+    this.releaseRemoteCursor(); // hand the cursor back before the re-dial
     void bridge.invoke("input:inject", { kind: "reset" });
+  }
+
+  /**
+   * A remote input event claims the cursor: from here on the OS arrow is HIDDEN until
+   * a physical mouse grab on THIS machine is proven. Called synchronously on every remote
+   * command — the hide never waits for position polling, so the arrow cannot flicker.
+   */
+  private claimRemoteCursor() {
+    this.cursorMode = "remote";
+    this.cursorMismatchPolls = 0;
+    this.setHostCursorVisible(false);
+  }
+
+  /** Hand the cursor back to this PC and show the OS arrow — permanent, until the next remote input. */
+  private releaseRemoteCursor() {
+    this.cursorMode = "local";
+    this.expectedMovePx = null;
+    this.cursorMismatchPolls = 0;
+    this.lastRawSample = null;
+    this.setHostCursorVisible(true);
+  }
+
+  /**
+   * Fire an input:inject and track it as an in-flight cursor move. The promise resolves when the
+   * main process has ACTUALLY applied the command (post input-chain), so the ownership poll never
+   * mistakes a pending remote jump — delayed behind a typing burst — for a physical mouse grab.
+   */
+  private injectCounted(msg: Record<string, unknown>) {
+    this.inflightMoves++;
+    void bridge.invoke("input:inject", msg)
+      .catch(() => { /* agent down — the session dies elsewhere */ })
+      .finally(() => { this.inflightMoves = Math.max(0, this.inflightMoves - 1); });
+  }
+
+  /**
+   * Divergence check, remote mode only, called once per poll (50 Hz).
+   * A remote injection JUMPS the cursor onto the target (dx≈0). A physical mouse grab on
+   * this machine moves it anywhere else; 30 px of slack + 3 consecutive polls (~60 ms) of
+   * evidence are required before ownership returns to "local" — one noisy sample can never
+   * strobe the global system cursor. In local mode the arrow is NEVER auto-hidden: only a
+   * remote input event can hide it.
+   */
+  private checkCursorOwnership(raw: { x: number; y: number }) {
+    if (this.cursorMode !== "remote") {
+      this.lastRawSample = raw;
+      this.cursorMismatchPolls = 0;
+      return;
+    }
+    // a cursor-moving command is queued/applying in the main process — the OS cursor may not
+    // be at the expected spot yet (typing bursts delay moves). Divergence seen now is ours,
+    // never a physical grab.
+    if (this.inflightMoves > 0) {
+      this.lastRawSample = raw;
+      this.cursorMismatchPolls = 0;
+      return;
+    }
+    // reference: the last injected remote target (authoritative). Without one, any sustained
+    // movement at all means the local user grabbed the mouse (nobody else moves it in remote mode).
+    const ref = this.expectedMovePx ?? this.lastRawSample;
+    this.lastRawSample = raw;
+    if (!ref) { this.cursorMismatchPolls = 0; return; }
+    const dx = Math.abs(raw.x - ref.x), dy = Math.abs(raw.y - ref.y);
+    if (dx <= 30 && dy <= 30) { this.cursorMismatchPolls = 0; return; }
+    if (++this.cursorMismatchPolls >= 3) {
+      log("[cursor] physical mouse grab detected — restoring host arrow for local control");
+      this.releaseRemoteCursor();
+    }
   }
 
   private async tuneSender(peerId: string) {
@@ -348,14 +429,8 @@ class HiddenAgent {
     if (!this.peerId) return;
     try {
       const raw = (await bridge.invoke("screen:cursorRaw")) as { x: number; y: number };
-      // host cursor visibility arbitration: remote movement hides the host arrow (UI arrow takes over),
-      // any other position (someone using the physical mouse) restores it.
-      if (this.expectedMovePx) {
-        const dx = Math.abs(raw.x - this.expectedMovePx.x), dy = Math.abs(raw.y - this.expectedMovePx.y);
-        if (debugEnabled()) console.log(`[cursor-check] raw=(${raw.x.toFixed(1)},${raw.y.toFixed(1)}) expect=(${this.expectedMovePx.x},${this.expectedMovePx.y}) dx=${dx.toFixed(1)} dy=${dy.toFixed(1)} visible=${this.hostCursorVisible}`);
-        if (dx <= 5 && dy <= 5) this.setHostCursorVisible(false);
-        else this.setHostCursorVisible(true);
-      }
+      // host cursor ownership arbitration — see checkCursorOwnership; never toggles per-poll
+      this.checkCursorOwnership(raw);
       const b = (await bridge.invoke("screen:bounds")) as { x: number; y: number; w: number; h: number };
       const nx = clamp01((raw.x - b.x) / Math.max(1, b.w - 1)), ny = clamp01((raw.y - b.y) / Math.max(1, b.h - 1));
       if (!force && Math.abs(nx - this.lastCursor.x) < 0.0008 && Math.abs(ny - this.lastCursor.y) < 0.0008) return;
@@ -444,6 +519,8 @@ class HiddenAgent {
   }
 
   private async handleCtl(msg: CtlMessage) {
+    // any remote command proves a remote operator is in control → claim the cursor (hide the host arrow)
+    if (msg.kind !== "bye") this.claimRemoteCursor();
     switch (msg.kind) {
       case "down": case "up": {
         this.noteRemoteMovePx(msg.x, msg.y);
@@ -458,12 +535,12 @@ class HiddenAgent {
       }
       case "click": {
         this.noteRemoteMovePx(msg.x, msg.y);
-        await bridge.invoke("input:inject", { kind: "click", button: msg.button, x: msg.x, y: msg.y, double: false });
+        this.injectCounted({ kind: "click", button: msg.button, x: msg.x, y: msg.y, double: false });
         return;
       }
       case "dblclick": {
         this.noteRemoteMovePx(msg.x, msg.y);
-        await bridge.invoke("input:inject", { kind: "click", button: msg.button, x: msg.x, y: msg.y, double: true });
+        this.injectCounted({ kind: "click", button: msg.button, x: msg.x, y: msg.y, double: true });
         return;
       }
       case "key":
@@ -481,9 +558,7 @@ class HiddenAgent {
         return;
       }
       case "bye": {
-        this.expectedMovePx = null;
-        this.hostCursorVisible = true;
-        void bridge.invoke("cursor:host", { visible: true }); // session over — always restore the host arrow
+        this.releaseRemoteCursor(); // session over — always restore the host arrow
         await bridge.invoke("session:ended-by-user");
         return;
       }
@@ -498,7 +573,7 @@ class HiddenAgent {
   }
 
   private async injectAbs(x: number, y: number) {
-    await bridge.invoke("input:inject", { kind: "move", x, y });
+    this.injectCounted({ kind: "move", x, y });
   }
 
   /** Stop current session, then re-arm the room for the next device. */
@@ -506,9 +581,7 @@ class HiddenAgent {
     this.stopLoops();
     const peer = this.peerId;
     this.peerId = null;
-    this.expectedMovePx = null;
-    this.hostCursorVisible = true;
-    void bridge.invoke("cursor:host", { visible: true }); // rearm — restore before the next session can begin
+    this.releaseRemoteCursor(); // rearm — restore the host arrow before the next session can begin
     try {
       if (peer && this.ctl) {
         try { (this.ctl as unknown as { send: (d: string, o?: { target: string }) => Promise<void> }).send(encodeCtl({ kind: "bye" }), { target: peer }); } catch { /* gone */ }

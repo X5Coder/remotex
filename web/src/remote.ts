@@ -169,7 +169,7 @@ export class RemoteSurface {
     this.bindKb($id("kbBtn") as HTMLButtonElement);
     this.bindKb($id("kbBtn3") as HTMLButtonElement);
     $id("kbBtn2").addEventListener("click", () => (this.kbOpen ? this.closeKb() : this.openKb()));
-    $id("exitBtn").addEventListener("click", () => { if (this.kbOpen) this.closeKb(); if (this.land) void this.rotateFull(); });
+    $id("exitBtn").addEventListener("click", () => { if (this.kbOpen) this.closeKb(); if (this.full) this.closeFull(); });
     $id("backdrop").addEventListener("click", () => this.closeFull());
 
     // keyboard input for phones/tablets
@@ -952,8 +952,10 @@ export class RemoteSurface {
     this.screenEl.classList.remove("land");
     this.backdrop.classList.remove("show");
     this.SW = to.w; this.SH = to.h;
+    // shade starts at its CURRENT opacity (0 in land, 1 in focus) — never resurrects a hidden shade
+    const so = +(this.shade.style.opacity || 0);
     this.shade.style.opacity = "0";
-    // real FLIP: from the current fullscreen rect back to the small wrap — cinematic spring-out
+    // real FLIP: from the current (possibly full-land) rect back to the small wrap — cinematic spring-out
     this.flip(to, from, () => {
       this.full = false;
       this.screenEl.classList.remove("full");
@@ -964,7 +966,7 @@ export class RemoteSurface {
       this.shade.style.cssText = "";
       this.opts.onExpandChange?.(false);
       void this.exitBrowserFs();
-    }, undefined, 1, 0);
+    }, undefined, so, 0);
   }
 
   async rotateFull() {

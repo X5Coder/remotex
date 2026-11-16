@@ -201,8 +201,14 @@ function startClipboardPolling() {
 // out-of-order backspace/enter would corrupt the typed stream. A single serial promise
 // chain guarantees this for every command kind.
 let inputChain: Promise<void> = Promise.resolve();
-function injectInput(msg: unknown): void {
-  inputChain = inputChain.then(() => injectInputNow(msg)).catch((e) => console.error("[input] inject failed:", e));
+/** Enqueue one command; the returned promise resolves when THIS command's turn has run (or failed). */
+function injectInputAsync(msg: unknown): Promise<void> {
+  return new Promise<void>((resolve) => {
+    inputChain = inputChain
+      .catch(() => { /* a failed command must not poison the chain */ })
+      .then(() => injectInputNow(msg))
+      .then(() => resolve(), (e) => { console.error("[input] inject failed:", e); resolve(); });
+  });
 }
 
 async function injectInputNow(msg: any): Promise<void> {
@@ -314,7 +320,9 @@ function registerIpc() {
 
   ipcMain.handle("platform:info", () => process.platform);
 
-  ipcMain.handle("input:inject", (_e, msg: unknown) => { injectInput(msg); });
+  // resolves only after THIS command has actually been applied by the chain — the hidden
+  // window uses this to know exactly when the OS cursor jumped (cursor-ownership arbitration)
+  ipcMain.handle("input:inject", (_e, msg: unknown) => injectInputAsync(msg));
 
   ipcMain.handle("capture:dimensions", (_e, dims: unknown) => {
     const d = dims as { width?: number; height?: number };
