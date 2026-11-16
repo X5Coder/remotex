@@ -4,16 +4,18 @@ copyright: Copyright © 2026 RemoteX contributors
 directories:
   output: release
 
-# release title (the tag is always v + package.json version — v5.12.0, matching the CI tag)
+# release title (the tag is always v + package.json version — v5.13.0, matching the CI tag)
 releaseInfo:
-  releaseName: v5.12.0
+  releaseName: v5.13.0
   releaseNotes: |
-    v5.12 — cursor restore on remote-input idle
+    v5.13 — physical mouse ALWAYS restores the host arrow (WH_MOUSE_LL)
 
-    - Agent: the host OS arrow now RESTORES automatically after 3 s of remote silence
-      (a live-but-idle web browser session, or a dead tab the agent never got a clean bye from).
-      The client's 1 Hz `curping` keepalive no longer counts as untameable remote control.
-      Launching the agent always re-asserts the original arrow.
+    - Agent: new low-level mouse hook (worker-thread message loop) — any real USB/Bluetooth
+      mouse or laptop trackpad report instantly hands cursor ownership back to the local
+      desktop, even while a remote session is driving. SendInput injections (robotjs) arrive
+      flagged as INJECTED and are ignored; remote claims that land <150 ms after a physical
+      touch are treated as the same-machine browser relaying its own pointer (not hidden).
+    - Falls back gracefully if the hook can't install; the 50 Hz divergence + 3 s idle restore stay as backups.
     - Web (v5.11): the X button in land fullscreen now returns straight to the normal small view
       with a smooth transform FLIP (spring-out), instead of a dimmed portrait-focus state where
       any tap afterwards replayed a janky return animation.
