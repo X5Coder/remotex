@@ -98,6 +98,10 @@ class HiddenAgent {
   private cursorMismatchPolls = 0;
   /** last raw sample seen by the poll — divergence reference when no remote target is known */
   private lastRawSample: { x: number; y: number } | null = null;
+  /** timestamp of the last REAL remote input (pointer/keyboard command) — drives the idle-restore */
+  private lastRemoteInputAt = 0;
+  /** ms of remote silence after which the OS arrow is handed back to the local desktop (catch-all for dead sessions / idle browsers) */
+  private static readonly REMOTE_IDLE_RESTORE_MS = 3000;
   /** number of cursor-moving commands whose injection has not been applied by the main process yet */
   private inflightMoves = 0;
   private hostCursorVisible = true;
@@ -282,6 +286,7 @@ class HiddenAgent {
   private claimRemoteCursor() {
     this.cursorMode = "remote";
     this.cursorMismatchPolls = 0;
+    this.lastRemoteInputAt = performance.now();
     this.setHostCursorVisible(false);
   }
 
@@ -318,6 +323,14 @@ class HiddenAgent {
     if (this.cursorMode !== "remote") {
       this.lastRawSample = raw;
       this.cursorMismatchPolls = 0;
+      return;
+    }
+    // CATCH-ALL: no real remote input for REMOTE_IDLE_RESTORE_MS means nobody is actively driving —
+    // a live web session that was left idle, or a dead/frozen browser tab the agent never got a clean
+    // bye from. Hand the arrow back to the local desktop; any remote command re-claims it instantly.
+    if (performance.now() - this.lastRemoteInputAt > HiddenAgent.REMOTE_IDLE_RESTORE_MS) {
+      log("[cursor] remote idle — restoring host arrow for the local desktop");
+      this.releaseRemoteCursor();
       return;
     }
     // a cursor-moving command is queued/applying in the main process — the OS cursor may not
@@ -519,8 +532,10 @@ class HiddenAgent {
   }
 
   private async handleCtl(msg: CtlMessage) {
-    // any remote command proves a remote operator is in control → claim the cursor (hide the host arrow)
-    if (msg.kind !== "bye") this.claimRemoteCursor();
+    // any remote POINTER/KEYBOARD command proves a remote operator is in control → claim the cursor.
+    // 'curping' is a client-side 1 Hz keepalive, NOT operator intent — it must never keep the host arrow hidden forever.
+    if (msg.kind === "down" || msg.kind === "up" || msg.kind === "click" || msg.kind === "dblclick"
+      || msg.kind === "key" || msg.kind === "text" || msg.kind === "paste") this.claimRemoteCursor();
     switch (msg.kind) {
       case "down": case "up": {
         this.noteRemoteMovePx(msg.x, msg.y);
