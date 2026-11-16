@@ -31,9 +31,14 @@ jobs:
         run: npm ci && npm run build
       - working-directory: agent
         run: npm ci && npm run build
-
+      # GCC 14 treats implicit function declarations as errors; @jitsi/robotjs' xdisplay.c
+      # calls strdup without one. Inject _GNU_SOURCE before electron-builder's native rebuild.
+      - if: runner.os == 'Linux'
+        working-directory: agent
+        run: sed -i '1i #define _GNU_SOURCE' node_modules/@jitsi/robotjs/src/xdisplay.c
       - name: Build & upload to release
         working-directory: agent
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
