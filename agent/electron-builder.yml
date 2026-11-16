@@ -60,4 +60,6 @@ linux:
 
 publish:
   provider: github
+  owner: X5Coder
+  repo: remotex
   releaseType: release

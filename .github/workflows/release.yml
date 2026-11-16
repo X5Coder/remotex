@@ -35,7 +35,7 @@ jobs:
       # calls strdup without one. Inject _GNU_SOURCE before electron-builder's native rebuild.
       - if: runner.os == 'Linux'
         working-directory: agent
-        run: sed -i '1i #define _GNU_SOURCE' node_modules/@jitsi/robotjs/src/xdisplay.c
+        run: "sed -i '1i #define _GNU_SOURCE' node_modules/@jitsi/robotjs/src/xdisplay.c"
       - name: Build & upload to release
         working-directory: agent
         shell: bash
