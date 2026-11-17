@@ -28,7 +28,7 @@ if (!gotLock) {
 }
 
 // ------------------------------------------------------------------- state --
-let quitting = false;
+
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let hidden: BrowserWindow | null = null;
@@ -101,11 +101,9 @@ function createMainWindow() {
     },
   });
   void win.loadFile(path.join(__dirname, "window.html"));
-  win.on("close", (e) => {
-    if (!quitting) {
-      e.preventDefault();
-      win?.hide();
-    }
+  win.on("close", () => {
+    // the window IS the app — closing it quits for real (settings restored, fresh password next launch)
+    app.quit();
   });
   win.on("closed", () => { win = null; });
 }
@@ -409,7 +407,6 @@ void app.whenReady().then(() => {
 });
 
 app.on("before-quit", () => {
-  quitting = true;
   // belt-and-braces: restore the original arrow as early as possible on ANY graceful exit path
   try { const { ensureHostCursorVisible } = require("./cursor-visibility") as typeof import("./cursor-visibility"); ensureHostCursorVisible(); } catch { /* fine */ }
 });
