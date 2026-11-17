@@ -142,6 +142,6 @@ function leaveRemote() {
   connect.reset();
 }
 
-// no floating disconnect button on the video — end the session from the RemoteX window's "Stop session"
+// no floating disconnect button on the video — end the session from the RemoteX window's "Terminate" button
 document.addEventListener("fullscreenchange", () => remote?.onFullscreenChange());
 document.addEventListener("webkitfullscreenchange", () => remote?.onFullscreenChange());
