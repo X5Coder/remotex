@@ -18,6 +18,10 @@ import { createDriver, clipboardHash, type InputDriver } from "./input";
 import { startLanServer, stopLanServer } from "./lan";
 
 // --------------------------------------------------------------- singleton --
+// Tell Windows who we are so the taskbar AND toast notifications use RemoteX's own icon
+// instead of Electron's generic one (dev runs and unpackaged builds otherwise blend in).
+app.setAppUserModelId("com.remotex.app");
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
