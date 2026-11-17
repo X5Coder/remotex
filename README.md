@@ -11,15 +11,15 @@
 
 ## Download
 
-Three builds — one per platform, nothing else:
+Three separate releases — one per platform. Pick yours:
 
-| Build | File | Short note |
+| Platform | File | Short note |
 |---|---|---|
-| **Windows** (10/11, x64) | [RemoteX-Setup.exe](https://github.com/X5Coder/remotex/releases/latest/download/RemoteX-Setup.exe) | One-click installer, desktop shortcut |
-| **macOS** (12+, Intel + Apple Silicon) | [RemoteX.dmg](https://github.com/X5Coder/remotex/releases/latest/download/RemoteX.dmg) | Universal dmg, drag to Applications |
-| **Linux** (x64) | [RemoteX.AppImage](https://github.com/X5Coder/remotex/releases/latest/download/RemoteX.AppImage) | No install needed — `chmod +x` and run |
+| **Windows** (10/11, x64) | [RemoteX-Setup.exe](https://github.com/X5Coder/remotex/releases/download/v6.0.0-windows/RemoteX-Setup.exe) | One-click installer, desktop shortcut |
+| **macOS** (12+, Intel + Apple Silicon) | [RemoteX.dmg](https://github.com/X5Coder/remotex/releases/download/v6.0.0-mac/RemoteX.dmg) | Universal dmg, drag to Applications |
+| **Linux** (x64, any glibc distro — Debian/Ubuntu/Fedora/Arch) | [RemoteX.AppImage](https://github.com/X5Coder/remotex/releases/download/v6.0.0-linux/RemoteX.AppImage) | No install needed — `chmod +x` and run |
 
-Everything else — full history, checksums — lives in [Releases](https://github.com/X5Coder/remotex/releases).
+All releases — one per platform — live in [Releases](https://github.com/X5Coder/remotex/releases).
 
 > Unsigned builds: on Windows, SmartScreen may warn once — click *More info → Run anyway*.
 > On macOS, right-click the app → **Open** the first time. On Linux, `chmod +x RemoteX.AppImage`.

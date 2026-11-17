@@ -1,25 +1,24 @@
-name: Release agents (Windows / macOS / Linux)
+name: Release agents (per-platform)
 
-# Exactly three artifacts are built — Windows (RemoteX-Setup.exe), macOS
-# (RemoteX.dmg) and Linux (RemoteX.AppImage) — and uploaded to the release
-# matching the pushed tag. Nothing else is published.
+# Three SEPARATE releases — one per platform. Push one of these tags:
+#   vX.Y.Z-windows  → builds + uploads RemoteX-Setup.exe   to the "*-windows" release
+#   vX.Y.Z-mac      → builds + uploads RemoteX.dmg         to the "*-mac" release
+#   vX.Y.Z-linux    → builds + uploads RemoteX.AppImage    to the "*-linux" release
+# Each workflow job is gated on the tag suffix, so each tag builds only its own platform.
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*-windows", "v*-mac", "v*-linux"]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  package:
-    name: Package — ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+  package-windows:
+    name: Windows (NSIS installer)
+    if: github.event_name == 'workflow_dispatch' || endsWith(github.ref_name, '-windows')
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,25 +28,48 @@ jobs:
           cache-dependency-path: |
             protocol/package-lock.json
             agent/package-lock.json
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxtst-dev libpng-dev python3 make g++
       - working-directory: protocol
         run: npm ci && npm run build
       - working-directory: agent
         run: npm ci && npm run build
-      # GCC 14 treats implicit function declarations as errors; @jitsi/robotjs' xdisplay.c
-      # calls strdup with neither _GNU_SOURCE nor <string.h>. Inject both before the rebuild.
-      - if: runner.os == 'Linux'
+      - name: Build (no publish)
         working-directory: agent
+        shell: bash
+        run: npx electron-builder --win --x64 --publish never
+      - name: Upload to this platform's release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: agent
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sed -i '1i #include <string.h>' node_modules/@jitsi/robotjs/src/xdisplay.c
-          sed -i '1i #define _GNU_SOURCE' node_modules/@jitsi/robotjs/src/xdisplay.c
+          cd release
+          ls -la
+          mv RemoteX.exe RemoteX-Setup.exe
+          gh release upload "${GITHUB_REF_NAME}" RemoteX-Setup.exe --clobber
+
+  package-mac:
+    name: macOS (universal dmg)
+    if: github.event_name == 'workflow_dispatch' || endsWith(github.ref_name, '-mac')
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            protocol/package-lock.json
+            agent/package-lock.json
+      - working-directory: protocol
+        run: npm ci && npm run build
+      - working-directory: agent
+        run: npm ci && npm run build
       # npm skips optional deps for the OTHER arch on macOS (runner is arm64, so the x64
       # koffi.node never lands in node_modules). Pull the exact-version tarball straight from
       # the registry and unpack it — no npm platform checks. Universal dmg packs from this
       # same tree; each slice loads its native koffi at runtime.
-      - if: runner.os == 'macOS'
-        working-directory: agent
+      - working-directory: agent
         run: |
           KV="$(node -p "require('./node_modules/koffi/package.json').version")"
           npm pack "@koromix/koffi-darwin-x64@$KV" --ignore-scripts
@@ -57,24 +79,53 @@ jobs:
       - name: Build (no publish)
         working-directory: agent
         shell: bash
-        run: |
-          case "${{ runner.os }}" in
-            Windows) npx electron-builder --win --x64 --publish never ;;
-            macOS)   npx electron-builder --mac --universal --publish never ;;
-            Linux)   npx electron-builder --linux AppImage --x64 --publish never ;;
-          esac
-      - name: Upload to the release (tags only)
+        run: npx electron-builder --mac --universal --publish never
+      - name: Upload to this platform's release (tags only)
         if: startsWith(github.ref, 'refs/tags/')
         working-directory: agent
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -e
           cd release
           ls -la
-          case "${{ runner.os }}" in
-            Windows) mv RemoteX.exe RemoteX-Setup.exe && gh release upload "${GITHUB_REF_NAME}" RemoteX-Setup.exe --clobber ;;
-            macOS)   gh release upload "${GITHUB_REF_NAME}" RemoteX.dmg --clobber ;;
-            Linux)   gh release upload "${GITHUB_REF_NAME}" RemoteX.AppImage --clobber ;;
-          esac
+          gh release upload "${GITHUB_REF_NAME}" RemoteX.dmg --clobber
+
+  package-linux:
+    name: Linux (AppImage)
+    if: github.event_name == 'workflow_dispatch' || endsWith(github.ref_name, '-linux')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            protocol/package-lock.json
+            agent/package-lock.json
+      - run: sudo apt-get update && sudo apt-get install -y libx11-dev libxtst-dev libpng-dev python3 make g++
+      - working-directory: protocol
+        run: npm ci && npm run build
+      - working-directory: agent
+        run: npm ci && npm run build
+      # GCC 14 treats implicit function declarations as errors; @jitsi/robotjs' xdisplay.c
+      # calls strdup with neither _GNU_SOURCE nor <string.h>. Inject both before the rebuild.
+      - working-directory: agent
+        run: |
+          sed -i '1i #include <string.h>' node_modules/@jitsi/robotjs/src/xdisplay.c
+          sed -i '1i #define _GNU_SOURCE' node_modules/@jitsi/robotjs/src/xdisplay.c
+      - name: Build (no publish)
+        working-directory: agent
+        shell: bash
+        run: npx electron-builder --linux AppImage --x64 --publish never
+      - name: Upload to this platform's release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: agent
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd release
+          ls -la
+          gh release upload "${GITHUB_REF_NAME}" RemoteX.AppImage --clobber
