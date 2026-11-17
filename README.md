@@ -4,9 +4,9 @@
 
 # RemoteX
 
-[![Windows](https://img.shields.io/badge/Windows-Download-000000?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/X5Coder/remotex/releases/latest/download/RemoteX-Setup.exe)&nbsp;&nbsp;&nbsp;
-[![macOS](https://img.shields.io/badge/macOS-Download-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/X5Coder/remotex/releases/latest/download/RemoteX.dmg)&nbsp;&nbsp;&nbsp;
-[![Linux](https://img.shields.io/badge/Linux-Download-000000?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/X5Coder/remotex/releases/latest/download/RemoteX.AppImage)
+[![Windows](https://img.shields.io/badge/Windows-Download-000000?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/X5Coder/remotex/releases/download/v6.0.0-windows/RemoteX.exe)&nbsp;&nbsp;&nbsp;
+[![macOS](https://img.shields.io/badge/macOS-Download-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/X5Coder/remotex/releases/download/v6.0.0-mac/RemoteX.dmg)&nbsp;&nbsp;&nbsp;
+[![Linux](https://img.shields.io/badge/Linux-Download-000000?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/X5Coder/remotex/releases/download/v6.0.0-linux/RemoteX.AppImage)
 
 <br>
 
@@ -22,9 +22,9 @@
 
 | System | File |
 | :-- | :-- |
-| Windows | [RemoteX-Setup.exe](https://github.com/X5Coder/remotex/releases/latest/download/RemoteX-Setup.exe) |
-| macOS | [RemoteX.dmg](https://github.com/X5Coder/remotex/releases/latest/download/RemoteX.dmg) |
-| Linux | [RemoteX.AppImage](https://github.com/X5Coder/remotex/releases/latest/download/RemoteX.AppImage) |
+| Windows | [RemoteX.exe](https://github.com/X5Coder/remotex/releases/download/v6.0.0-windows/RemoteX.exe) |
+| macOS | [RemoteX.dmg](https://github.com/X5Coder/remotex/releases/download/v6.0.0-mac/RemoteX.dmg) |
+| Linux | [RemoteX.AppImage](https://github.com/X5Coder/remotex/releases/download/v6.0.0-linux/RemoteX.AppImage) |
 
 All versions: [Releases](https://github.com/X5Coder/remotex/releases)
 
@@ -49,3 +49,4 @@ MIT, see [LICENSE](LICENSE).
 **Made by [X5Coder](https://github.com/X5Coder) · All rights reserved**
 
 </div>
+

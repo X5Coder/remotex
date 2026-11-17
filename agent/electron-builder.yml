@@ -4,10 +4,9 @@ copyright: Copyright (c) 2026 RemoteX contributors
 directories:
   output: release
 
-# Every artifact is named after the product only: RemoteX.<ext>.
-# The release contains exactly three builds — Windows (installer), macOS (dmg),
-# Linux (AppImage) — and nothing else. Windows is renamed to RemoteX-Setup.exe
-# in the release workflow.
+# Every artifact is named exactly after the product — RemoteX.<ext>:
+# RemoteX.exe (Windows installer), RemoteX.dmg (macOS), RemoteX.AppImage (Linux).
+# The release contains exactly one build per platform, named after the app itself.
 artifactName: RemoteX.${ext}
 
 # release title/tag comes from git (tag v6.0.0) — no fixed releaseInfo here;

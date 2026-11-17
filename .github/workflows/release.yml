@@ -45,8 +45,7 @@ jobs:
         run: |
           cd release
           ls -la
-          mv RemoteX.exe RemoteX-Setup.exe
-          gh release upload "${GITHUB_REF_NAME}" RemoteX-Setup.exe --clobber
+          gh release upload "${GITHUB_REF_NAME}" RemoteX.exe --clobber
 
   package-mac:
     name: macOS (universal dmg)
