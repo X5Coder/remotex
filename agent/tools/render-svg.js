@@ -16,7 +16,7 @@ void app.whenReady().then(async () => {
     const svg = fs.readFileSync(svgPath, "utf8");
     const html =
       "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>" +
-      `html,body{margin:0;padding:0;width:${size}px;height:${size}px;overflow:hidden}` +
+      `html,body{margin:0;padding:0;width:${size}px;height:${size}px;overflow:hidden;background:transparent}` +
       `svg{width:${size}px;height:${size}px;display:block}` +
       "</style></head><body>" + svg + "</body></html>";
     const win = new BrowserWindow({
@@ -24,6 +24,8 @@ void app.whenReady().then(async () => {
       width: size,
       height: size,
       useContentSize: true,
+      transparent: true,
+      backgroundColor: "#00000000",
       webPreferences: { offscreen: true },
     });
     await win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));

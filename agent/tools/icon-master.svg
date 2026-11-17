@@ -8,7 +8,7 @@
       <feDropShadow dx="2" dy="3" stdDeviation="2.5" flood-color="#000" flood-opacity="0.25"/>
     </filter>
   </defs>
-  <rect width="288" height="288" rx="44" ry="44" fill="#ffffff"/>
+  <rect width="288" height="288" rx="80" ry="80" fill="#ffffff"/>
   <g transform="translate(16 7.5)">
     <!-- sparks -->
     <g stroke="#1a1a1a" stroke-width="7" stroke-linecap="round">
