@@ -32,7 +32,6 @@ const FPS_FLOOR = 45;
 const SESSION_LIMIT_MS = 5 * 60 * 60 * 1000; // 5 hours — then auto-terminate; reconnect with the same password
 const RELAY_URLS = [
   "ws://127.0.0.1:4545", // our own LAN relay — single fixed port
-  "wss://relay.nostr.net",
   "wss://nos.lol",
   "wss://relay.snort.social",
   "wss://relay.primal.net",

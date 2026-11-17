@@ -63,7 +63,6 @@ async function probeLanRelay(host: string): Promise<string | null> {
 }
 
 const NOSTR_RELAYS = [
-  "wss://relay.nostr.net",
   "wss://nos.lol",
   "wss://relay.snort.social",
   "wss://relay.primal.net",
@@ -236,14 +235,15 @@ export class Session implements CommandSink {
     }, CONNECT_TIMEOUT_MS);
   }
 
-  /** Tear down the failed room, then re-try from scratch. Silent — the connect button already says Connecting. */
+  /** Tear down the failed room, then re-try from scratch — backoff so we don't hammer public relays (they rate-limit our shared app key at 60 events/min). Silent — the connect button already says Connecting. */
   private async retrySoon(attempt: number) {
     console.log(`[session] attempt ${attempt} timed out — retrying…`);
     const room = this.room;
     this.room = null;
     if (room) { try { await room.leave(); } catch { /* already gone */ } }
     window.clearTimeout(this.connectTimer ?? undefined);
-    window.setTimeout(() => { if (!this.disposed) this.start(attempt + 1); }, 400);
+    const wait = attempt === 1 ? 800 : 1800; // 0.8s, then longer — fewer hammer bursts on shared relays
+    window.setTimeout(() => { if (!this.disposed) this.start(attempt + 1); }, wait);
   }
 
   /** Latest-only cursor correction from the agent (absolute, normalized). */
