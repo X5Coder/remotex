@@ -43,6 +43,13 @@ mac:
   target:
     - target: dmg
       arch: [universal]
+  # universal merge: koffi ships per-arch Mach-O binaries (@koromix/koffi-darwin-*).
+  # Both temp app dirs contain BOTH variants (npm installs arm64 on the runner and CI
+  # unpacks x64 next to it), so the two identical arm64 Mach-O files must be declared
+  # x64-specific or @electron/universal refuses the merge. robotjs differs per arch and
+  # is lipo'd as usual; every identical .node file stays on both slices and koffi loads
+  # the right one at runtime.
+  x64ArchFiles: "**/*.node"
   category: public.app-category.utilities
   icon: dist/icon.png
   hardenedRuntime: true
