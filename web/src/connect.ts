@@ -9,9 +9,12 @@ export class ConnectController {
   private roomId = document.getElementById("roomId") as HTMLInputElement;
   private password = document.getElementById("password") as HTMLInputElement;
   private connectBtn = document.getElementById("connectBtn") as HTMLButtonElement;
+  private label = this.connectBtn.querySelector(".connectLabel") as HTMLSpanElement;
   private root = document.getElementById("connectScreen") as HTMLDivElement;
 
   constructor(private onConnect: (roomId: string, password: string) => void) {
+    this.roomId.title = "6-digit Device ID shown in the RemoteX window";
+    this.password.title = "6-letter password shown in the RemoteX window";
     // the Device ID is remembered (it never changes) — but only if it matches the
     // CURRENT 6-digit format; a stale value from before the format change is discarded
     try {
@@ -42,10 +45,11 @@ export class ConnectController {
   show() { this.root.hidden = false; }
   hide() { this.root.hidden = true; }
 
-  /** busy = connecting; button label turns into "Connecting…" */
+  /** busy = connecting; button label turns into "Connecting…" and a spinner joins it */
   setBusy(busy: boolean) {
     this.connectBtn.disabled = busy || !this.roomId.value.trim() || !this.password.value.trim();
-    this.connectBtn.textContent = busy ? "Connecting…" : "Connect";
+    this.connectBtn.classList.toggle("is-busy", busy);
+    this.label.textContent = busy ? "Connecting…" : "Connect";
     this.roomId.disabled = busy;
     this.password.disabled = busy;
   }

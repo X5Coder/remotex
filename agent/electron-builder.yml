@@ -1,22 +1,17 @@
 appId: com.remotex.app
 productName: RemoteX
-copyright: Copyright © 2026 RemoteX contributors
+copyright: Copyright (c) 2026 RemoteX contributors
 directories:
   output: release
 
-# release title (the tag is always v + package.json version — v5.15.0, matching the CI tag)
-releaseInfo:
-  releaseName: v5.15.0
-  releaseNotes: |
-    v5.15.0 — host arrow is always visible; no more hide/show arbitration
+# Every artifact is named after the product only: RemoteX.<ext>.
+# The release contains exactly three builds — Windows (installer), macOS (dmg),
+# Linux (AppImage) — and nothing else. Windows is renamed to RemoteX-Setup.exe
+# in the release workflow.
+artifactName: RemoteX.${ext}
 
-    - Agent: the host machine's OS arrow is never hidden or swapped anymore — it stays
-      on screen at all times, in and out of remote sessions. The transparent-cursor
-      swap and the whole arbitration machine (5.10–5.14) are removed.
-      Why: the machine's arrow got stuck invisible system-wide for users while
-      this was being tried; the only reliable behavior is "always visible".
-    - Web (v5.11): the X button in land fullscreen now returns straight to the normal small view
-      with a smooth transform FLIP (spring-out). No animation afterwards.
+# release title/tag comes from git (tag v6.0.0) — no fixed releaseInfo here;
+# the GitHub release is created with notes by the maintainer.
 npmRebuild: true # rebuild @jitsi/robotjs against the packaged Electron ABI
 files:
   - dist/**
@@ -26,15 +21,13 @@ files:
 asar: true
 compression: maximum
 
-# Elevation model: the GUI runs asInvoker — Chromium screen capture breaks under elevation.
-# Lid-close keep-awake is done by a one-shot elevated helper (see platform/windows/power.js),
-# so the user sees ONE UAC prompt at launch (optional) instead of running the whole app as admin.
-# NSIS itself elevates at install time (perMachine).
+# Elevation model: the GUI runs asInvoker — Chromium screen capture breaks under
+# elevation. Lid-close keep-awake is done by a one-shot elevated helper (see
+# platform/windows/power.js), so the user sees ONE UAC prompt at launch (optional)
+# instead of running the whole app as admin. NSIS itself elevates at install time.
 win:
   target:
     - target: nsis
-      arch: [x64, arm64]
-    - target: zip
       arch: [x64]
   requestedExecutionLevel: asInvoker
   icon: dist/icon.ico
@@ -49,9 +42,7 @@ nsis:
 mac:
   target:
     - target: dmg
-      arch: [x64, arm64]
-    - target: zip
-      arch: [x64, arm64]
+      arch: [universal]
   category: public.app-category.utilities
   icon: dist/icon.png
   hardenedRuntime: true
@@ -61,12 +52,9 @@ mac:
 
 linux:
   target:
-    - AppImage
-    - deb
-    - rpm
-  # electron-builder derives executableName from package.json "name" by default;
-  # "@remotex/agent" produces "@remotexagent", which AppImage rejects
-  executableName: remotex-agent
+    - target: AppImage
+      arch: [x64]
+  executableName: remotex
   category: Utility
   icon: dist/icon.png
   desktop:

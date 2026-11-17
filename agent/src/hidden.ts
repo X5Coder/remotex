@@ -29,6 +29,7 @@ import {
 const APP_ID = "remotex-1";
 const BITRATE_LADDER = [20_000_000, 12_000_000, 8_000_000, 4_000_000];
 const FPS_FLOOR = 45;
+const SESSION_LIMIT_MS = 5 * 60 * 60 * 1000; // 5 hours — then auto-terminate; reconnect with the same password
 const RELAY_URLS = [
   "ws://127.0.0.1:4545", // our own LAN relay — single fixed port
   "wss://relay.nostr.net",
@@ -56,14 +57,6 @@ async function reportStatus(text: string, tone: "waiting" | "connected" | "close
   try { await bridge.invoke("agent:status", { text, tone }); } catch { /* main gone */ }
 }
 
-async function reportRtt(ms: number) {
-  try { await bridge.invoke("rtt:report", ms); } catch { /* optional */ }
-}
-
-async function reportStats(stats: { fps: number; mbps: number; rttMs: number; encoder: string; rung: number }) {
-  try { await bridge.invoke("stats:report", stats); } catch { /* optional */ }
-}
-
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 class HiddenAgent {
@@ -77,54 +70,62 @@ class HiddenAgent {
   private stream: MediaStream | null = null;
   private sender: RTCRtpSender | null = null;
   private statsTimer: number | null = null;
-  private pingTimer: number | null = null;
   private cursorTimer: number | null = null;
   private lastCursor = { x: -1, y: -1 };
   private curPublished = 0;
+  private lastPacketsLost = 0;
   private bitrateRung = 0;
   private statsStrikes = { lowFps: 0, loss: 0, good: 0 };
   private started = false;
+  private launchRoomId = "";
+  private launchPassword = "";
+  private sessionTimer: number | null = null;
 
   async start() {
     if (this.started) return;
     this.started = true;
-    const password = getLaunchParam("password");
-    const roomId = getLaunchParam("roomId");
+    // seed once from the launch URL; re-arms (e.g. after a password rotation) keep the live values
+    if (!this.launchPassword) this.launchPassword = getLaunchParam("password");
+    if (!this.launchRoomId) this.launchRoomId = getLaunchParam("roomId");
+    const password = this.launchPassword;
+    const roomId = this.launchRoomId;
     if (!password || !roomId) {
       void reportStatus("Launch error: missing credentials", "error");
       return;
     }
 
-    // 1) capture the primary screen at native resolution, up to 60 fps
+    // 1) capture the primary screen at native resolution, up to 60 fps —
+    //    reuse the live capture when re-arming (Terminate / password rotation)
     let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getDisplayMedia({
-        // NO width/height constraint — otherwise Chromium captures at DIP resolution and mismatches robotjs
-        // cursor: 'never' — the host's own arrow stays visible ON THE MACHINE ONLY; it is NOT baked
-        // into the stream, so the overlay cursor in the phone UI is the ONLY cursor the user sees.
-        // cursor: 'never' — honored by Chromium for window captures; ignored for whole-screen
-        // captures (platform restriction). The captured arrow is ~5-7 px on the phone and is
-        // completely covered by our own 1:1 overlay arrow (same position, Windows arrow shape),
-        // so the user sees exactly ONE cursor anyway. The host arrow itself is never touched.
-        video: { frameRate: { ideal: 60, max: 60 }, cursor: "never" } as unknown as MediaTrackConstraints,
-        audio: false,
-      });
-    } catch (err) {
-      // elevated launches sometimes refuse the modern handler — fall back to the
-      // legacy (but still supported) chromeMediaSource path
-      console.warn("[hidden] getDisplayMedia failed, trying legacy chromeMediaSource:", err);
+    if (this.stream && this.stream.getVideoTracks().some((t) => t.readyState === "live")) {
+      stream = this.stream;
+      console.log("[hidden] reusing the live capture stream");
+    } else {
       try {
-        const srcId = String(await bridge.invoke("capture:primary-source"));
-        if (!srcId) throw new Error("no screen source available");
-        const legacy: MediaStream = await navigator.mediaDevices.getUserMedia({
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          // NO width/height constraint — otherwise Chromium captures at DIP resolution and mismatches robotjs
+          // cursor: 'never' — the host's own arrow stays visible ON THE MACHINE ONLY; it is NOT baked
+          // into the stream, so the overlay cursor in the phone UI is the ONLY cursor the user sees.
+          video: { frameRate: { ideal: 60, max: 60 }, cursor: "never" } as unknown as MediaTrackConstraints,
           audio: false,
-          video: { mandatory: { chromeMediaSource: "desktop", chromeMediaSourceId: srcId, minFrameRate: 60, maxFrameRate: 60 } } as never,
         });
-        stream = legacy;
-        console.log("[hidden] legacy chromeMediaSource capture active");
-      } catch (err2) {
-        void reportStatus(`Screen capture was refused: ${err2 instanceof Error ? err2.message : String(err2)}`, "error");
-        throw err2;
+      } catch (err) {
+        // elevated launches sometimes refuse the modern handler — fall back to the
+        // legacy (but still supported) chromeMediaSource path
+        console.warn("[hidden] getDisplayMedia failed, trying legacy chromeMediaSource:", err);
+        try {
+          const srcId = String(await bridge.invoke("capture:primary-source"));
+          if (!srcId) throw new Error("no screen source available");
+          const legacy: MediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { mandatory: { chromeMediaSource: "desktop", chromeMediaSourceId: srcId, minFrameRate: 60, maxFrameRate: 60 } } as never,
+          });
+          stream = legacy;
+          console.log("[hidden] legacy chromeMediaSource capture active");
+        } catch (err2) {
+          void reportStatus(`Screen capture was refused: ${err2 instanceof Error ? err2.message : String(err2)}`, "error");
+          throw err2;
+        }
       }
     }
     this.stream = stream;
@@ -163,7 +164,6 @@ class HiddenAgent {
       if (ctx.peerId !== this.peerId) return;
       const msg = decodeFast(data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer));
       if (!msg) return;
-      if (msg.kind === "ping") { void reportRtt(Math.max(0, Math.floor(performance.now() - msg.t))); return; }
       if (msg.kind === "move") {
         if (!this.tracker.accept(msg.seq)) return;
         void bridge.invoke("input:inject", { kind: "move", x: msg.x, y: msg.y });
@@ -195,6 +195,7 @@ class HiddenAgent {
         } else {
           log("refusing second peer", peerId);
           try { this.ctl?.send(encodeCtl({ kind: "bye" }), { target: peerId } as never); } catch { /* ignore */ }
+          void bridge.invoke("agent:notify", { title: "RemoteX", body: "A second device tried to connect — refused." });
           return;
         }
       }
@@ -204,7 +205,11 @@ class HiddenAgent {
       void this.tuneSender(peerId);
       void this.sendHello();
       void reportStatus("Connected — one device is in control", "connected");
+      void bridge.invoke("agent:notify", { title: "RemoteX", body: "Someone connected to this computer." });
       this.startLoops();
+      // 5-hour session cap — the user can reconnect afterwards with the same password
+      if (this.sessionTimer !== null) window.clearTimeout(this.sessionTimer);
+      this.sessionTimer = window.setTimeout(() => void this.handleSessionTimeout(), SESSION_LIMIT_MS);
     });
 
     room.onPeerLeave(({ peerId }) => {
@@ -214,6 +219,7 @@ class HiddenAgent {
       this.stopLoops();
       // release any modifiers held for this session
       void bridge.invoke("input:inject", { kind: "reset" });
+      void bridge.invoke("agent:notify", { title: "RemoteX", body: "Session ended." });
       void reportStatus("Session ended — ready for a new connection", "waiting");
     });
 
@@ -315,23 +321,33 @@ class HiddenAgent {
 
   private startLoops() {
     this.stopLoops();
-    // ping every second on the fast channel (client echoes the 7 bytes)
-    this.pingTimer = window.setInterval(() => {
-      this.fast?.send(encodeFast({ kind: "ping", seq: this.seq.next(), t: Math.floor(performance.now()) })).catch(() => {});
-    }, 1000);
-
     // true-cursor broadcast at 50 Hz when it moved (corrects client prediction)
     this.cursorTimer = window.setInterval(() => { void this.publishCursor(); }, 20);
 
-    // adaptive bitrate + fps/loss monitoring every 1 s, adjust every 10 s
+    // adaptive bitrate + fps monitoring every 1 s, adjust every ~10 s
     this.statsTimer = window.setInterval(() => { void this.sampleStats(); }, 1000);
   }
 
   private stopLoops() {
-    for (const t of [this.pingTimer, this.cursorTimer, this.statsTimer]) {
+    for (const t of [this.cursorTimer, this.statsTimer]) {
       if (t !== null) window.clearInterval(t);
     }
-    this.pingTimer = this.cursorTimer = this.statsTimer = null;
+    this.cursorTimer = this.statsTimer = null;
+    if (this.sessionTimer !== null) {
+      window.clearTimeout(this.sessionTimer);
+      this.sessionTimer = null;
+    }
+  }
+
+  /** 5 hours reached — drop the session politely, then re-arm the room for the next connection. */
+  private async handleSessionTimeout() {
+    log("5-hour session limit reached — terminating the session");
+    const peer = this.peerId;
+    if (peer && this.ctl) {
+      try { (this.ctl as unknown as { send: (d: string, o?: { target: string }) => Promise<void> }).send(encodeCtl({ kind: "bye" }), { target: peer }); } catch { /* gone */ }
+    }
+    void bridge.invoke("agent:notify", { title: "RemoteX", body: "The session ended after 5 hours." });
+    await this.rearm();
   }
 
   private async publishCursor(force = false) {
@@ -354,35 +370,37 @@ class HiddenAgent {
     } catch { /* ignore transient */ }
   }
 
+  /**
+   * Link-quality monitor — measures the connection from WebRTC stats (frames per second,
+   * packet-loss delta) and steps the bitrate ladder down/up to fit the real link.
+   * Entirely internal; nothing is displayed.
+   */
   private async sampleStats() {
     if (!this.sender || !this.peerId) return;
     try {
       const stats = await this.sender.getStats();
-      let fps = 0, loss = 0, bytesSent = 0, encoder = "unknown", rttMs = 0;
+      let fps = 0, packetsLost = 0;
       stats.forEach((r) => {
         if (r.type === "outbound-rtp" && r.kind === "video") {
           fps = r.framesPerSecond ?? 0;
-          loss = r.packetsLost ?? 0;
-          bytesSent = r.bytesSent ?? 0;
-          encoder = r.encoderImplementation ?? encoder;
-        }
-        if (r.type === "candidate-pair" && r.state === "succeeded") {
-          rttMs = (r.currentRoundTripTime ?? rttMs) * 1000;
+          packetsLost = r.packetsLost ?? 0;
         }
       });
-      const mbps = bytesSent * 8 / 1e6;
-      void reportStats({ fps, mbps, rttMs: Math.round(rttMs), encoder, rung: this.bitrateRung });
+      // packet-loss DELTA over the last second — a spike means the link is saturated
+      const lossDelta = Math.max(0, packetsLost - this.lastPacketsLost);
+      this.lastPacketsLost = packetsLost;
 
       if (fps > 0 && fps < FPS_FLOOR) this.statsStrikes.lowFps++; else if (fps >= FPS_FLOOR) this.statsStrikes.lowFps = 0;
-      // loss is cumulative packetsLost on the report; treat as proportional signal only when rising is internal — v1: fps is the primary gate
-      this.statsStrikes.loss = this.statsStrikes.loss; // placeholder for delta accounting
+      if (lossDelta > 30) this.statsStrikes.loss++; else this.statsStrikes.loss = 0;
 
-      if (this.statsStrikes.lowFps >= 3 && this.bitrateRung < BITRATE_LADDER.length - 1) {
+      const struggling = this.statsStrikes.lowFps >= 3 || this.statsStrikes.loss >= 3;
+      if (struggling && this.bitrateRung < BITRATE_LADDER.length - 1) {
         this.bitrateRung++;
         this.statsStrikes.lowFps = 0;
+        this.statsStrikes.loss = 0;
         await this.applyBitrate();
         log("bitrate ladder ↓ to rung", this.bitrateRung);
-      } else if (fps >= FPS_FLOOR && this.statsStrikes.lowFps === 0 && this.bitrateRung > 0) {
+      } else if (fps >= FPS_FLOOR && lossDelta <= 5 && this.statsStrikes.lowFps === 0 && this.bitrateRung > 0) {
         this.statsStrikes.good++;
         if (this.statsStrikes.good >= 10) {
           this.statsStrikes.good = 0;
@@ -448,17 +466,17 @@ class HiddenAgent {
     }
   }
 
-  private async rearmTracks() {
-    try { this.stream?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
-    this.stream = null;
-  }
-
   private async injectAbs(x: number, y: number) {
     void bridge.invoke("input:inject", { kind: "move", x, y });
   }
 
-  /** Stop current session, then re-arm the room for the next device. */
-  async rearm() {
+  /**
+   * Stop the current session and re-arm the room for the next device.
+   * The capture stream is REUSED (only the room/peer state is rebuilt) — stopping and
+   * re-capturing the screen would cost seconds and flash a black frame for no benefit.
+   * A new password can be passed to rotate credentials (old password stops working instantly).
+   */
+  async rearm(newPassword?: string) {
     this.stopLoops();
     const peer = this.peerId;
     this.peerId = null;
@@ -468,26 +486,34 @@ class HiddenAgent {
       }
       await this.room?.leave();
     } catch { /* already left */ }
-    await this.rearmTracks();
     this.room = null;
     this.fast = null;
     this.ctl = null;
     this.sender = null;
-    // rebuild capture stream for the next session
-    const password = getLaunchParam("password");
-    const roomId = getLaunchParam("roomId");
-    if (password && roomId) {
-      this.started = false;
-      await this.start();
+    this.bitrateRung = 0;
+    this.statsStrikes = { lowFps: 0, loss: 0, good: 0 };
+    this.lastCursor = { x: -1, y: -1 };
+    this.lastPacketsLost = 0;
+    if (typeof newPassword === "string" && newPassword.length >= 6) this.launchPassword = newPassword;
+    // drop the stream only if the capture pipeline died — otherwise reuse it
+    if (!this.stream || this.stream.getTracks().every((t) => t.readyState === "ended")) {
+      this.stream = null;
     }
+    this.started = false;
+    await this.start();
   }
 }
 
 const agent = new HiddenAgent();
 
 window.addEventListener("DOMContentLoaded", () => {
-  // user pressed "Stop session" in the agent window
+  // user pressed "Terminate" in the agent window — drop the connected user, keep the room (same password)
   bridge.on("session:stop", () => void agent.rearm());
+  // the window asked for a fresh password — rotate it and re-arm with the new one
+  bridge.on("session:new-password", (pw) => {
+    const password = typeof pw === "string" ? pw : "";
+    if (password.length >= 6) void agent.rearm(password);
+  });
   // PC clipboard changed → push to the web client (echo-guarded in main)
   bridge.on("clipboard-changed", (text) => {
     if (typeof text !== "string" || !text) return;

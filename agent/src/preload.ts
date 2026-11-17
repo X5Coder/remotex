@@ -9,17 +9,15 @@ const invokeChannels = [
   "agent:copy",
   "agent:quit",
   "agent:status",
+  "agent:new-password",
+  "agent:notify",
   "session:stop",
   "screen:info",
-  "screen:cursor",
   "screen:cursorRaw",
   "screen:bounds",
   "platform:info",
   "input:inject",
-  "stats:report",
-  "rtt:report",
   "capture:primary-source",
-  "capture:dimensions",
   "turn:config",
   "win:minimize",
   "win:close",
@@ -30,6 +28,7 @@ const onChannels = [
   "clipboard-changed",
   "session:ended-by-user",
   "session:stop",
+  "session:new-password",
 ] as const;
 
 contextBridge.exposeInMainWorld("remotex", {

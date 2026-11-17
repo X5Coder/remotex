@@ -74,14 +74,14 @@ function startSession(roomId: string, password: string) {
 
       onRtt(_ms) { /* overlay removed — RTT kept internal for the adaptive bitrate ladder */ },
       onHello(hello) {
-        toast(`Connected — ${hello.screen.width}×${hello.screen.height}`);
+        toast("Connected");
         remote?.setCursor(hello.cursor.x, hello.cursor.y); // sync phone cursor to the host cursor immediately
       },
       onClipboard(text) {
         void remote?.handleRemoteClipboard(text);
       },
       onVersionMismatch() {
-        toast("Update the agent — protocol version mismatch");
+        toast("Update the agent — version mismatch");
       },
     },
   });
@@ -92,8 +92,21 @@ function startSession(roomId: string, password: string) {
 function enterRemote() {
   if (inRemote) return; // silent recovery re-dial fires "connected" again here — keep the existing surface
   inRemote = true;
-  connect.hide();
+  // fade the connect screen out first — hide it only when the fade has finished (inline styles are reset so show() works next time)
+  const cs = document.getElementById("connectScreen")!;
+  cs.animate(
+    [{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: "scale(.96)" }],
+    { duration: 220, easing: "cubic-bezier(.32,.72,.25,1)" }
+  ).onfinish = () => {
+    if (inRemote) connect.hide();
+    cs.style.opacity = "";
+    cs.style.transform = "";
+  };
   appEl.hidden = false;
+  appEl.animate(
+    [{ opacity: 0, transform: "scale(.97) translateY(12px)" }, { opacity: 1, transform: "scale(1) translateY(0)" }],
+    { duration: 380, easing: "cubic-bezier(.32,.72,.25,1)" }
+  );
   remote = new RemoteSurface({ sink: session! });
   session!.setStaleFrameProbe(() => !!remote?.framesFlowing());
   remote.setStaleHandler(() => {
@@ -114,9 +127,18 @@ function leaveRemote() {
   remote?.setStream(null);
   remote?.detach();
   remote = null;
-  appEl.hidden = true;
+  appEl.animate(
+    [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.97) translateY(12px)" }],
+    { duration: 240, easing: "cubic-bezier(.32,.72,.25,1)" }
+  ).onfinish = () => { if (!inRemote) appEl.hidden = true; };
   dockEl.hidden = true;
   connect.show();
+  // fade the connect screen back in after it is shown again
+  const cs = document.getElementById("connectScreen")!;
+  cs.animate(
+    [{ opacity: 0, transform: "scale(.97)" }, { opacity: 1, transform: "scale(1)" }],
+    { duration: 380, easing: "cubic-bezier(.32,.72,.25,1)" }
+  );
   connect.reset();
 }
 

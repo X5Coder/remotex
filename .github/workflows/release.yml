@@ -1,5 +1,9 @@
 name: Release agents (Windows / macOS / Linux)
 
+# Exactly three artifacts are built — Windows (RemoteX-Setup.exe), macOS
+# (RemoteX.dmg) and Linux (RemoteX.AppImage) — and uploaded to the release
+# matching the pushed tag. Nothing else is published.
+
 on:
   push:
     tags: ["v*"]
@@ -9,7 +13,7 @@ permissions:
   contents: write
 
 jobs:
-  agent:
+  package:
     name: Package — ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -40,8 +44,8 @@ jobs:
           sed -i '1i #define _GNU_SOURCE' node_modules/@jitsi/robotjs/src/xdisplay.c
       # npm skips optional deps for the OTHER arch on macOS (runner is arm64, so the x64
       # koffi.node never lands in node_modules). Pull the exact-version tarball straight from
-      # the registry and unpack it — no npm platform checks. Universal is not used; each arch
-      # dmg/zip packs from this same tree, so both slices load their native koffi at runtime.
+      # the registry and unpack it — no npm platform checks. Universal dmg packs from this
+      # same tree; each slice loads its native koffi at runtime.
       - if: runner.os == 'macOS'
         working-directory: agent
         run: |
@@ -50,17 +54,27 @@ jobs:
           mkdir -p node_modules/@koromix/koffi-darwin-x64
           tar -xzf koromix-koffi-darwin-x64-$KV.tgz -C node_modules/@koromix/koffi-darwin-x64 --strip-components=1
           rm koromix-koffi-darwin-x64-$KV.tgz
-      - name: Build & upload to release
+      - name: Build (no publish)
+        working-directory: agent
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            Windows) npx electron-builder --win --x64 --publish never ;;
+            macOS)   npx electron-builder --mac --universal --publish never ;;
+            Linux)   npx electron-builder --linux AppImage --x64 --publish never ;;
+          esac
+      - name: Upload to the release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
         working-directory: agent
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -e
+          cd release
+          ls -la
           case "${{ runner.os }}" in
-            Windows) npx electron-builder --win --x64 --arm64 --publish always ;;
-            macOS)   npx electron-builder --mac --publish always ;;
-            Linux)   npx electron-builder --linux AppImage deb rpm --publish always ;;
+            Windows) mv RemoteX.exe RemoteX-Setup.exe && gh release upload "${GITHUB_REF_NAME}" RemoteX-Setup.exe --clobber ;;
+            macOS)   gh release upload "${GITHUB_REF_NAME}" RemoteX.dmg --clobber ;;
+            Linux)   gh release upload "${GITHUB_REF_NAME}" RemoteX.AppImage --clobber ;;
           esac
-
-      - name: Build native deps marker (nothing to do — electron-builder rebuilds)
-        run: echo "electron-builder npmRebuild=true handles @jitsi/robotjs for the packaged ABI"

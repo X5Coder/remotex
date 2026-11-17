@@ -39,6 +39,7 @@ type Room = ReturnType<typeof joinRoom>;
 const APP_ID = "remotex-1"; // namespace shared with the agent; change = everyone must upgrade
 const CONNECT_TIMEOUT_MS = 12_000;
 const MAX_ATTEMPTS = 3;
+const SESSION_LIMIT_MS = 5 * 60 * 60 * 1000; // 5 hours — then auto-disconnect; reconnect with the same password
 // Public Nostr relays verified live from this network (2026-11-15): all accepted
 // Trystero's discovery kinds and completed WebSocket handshakes. relay.damus.io is
 // down for this user (HTTP 520/521) and relay.nos.social refuses Trystero's message
@@ -102,6 +103,7 @@ export class Session implements CommandSink {
   private peerId: string | null = null;
   private connectTimer: number | null = null;
   private rttTimer: number | null = null;
+  private sessionLimitTimer: number | null = null;
   private disposed = false;
   private recovering = false;
   private staleFrameProbe: (() => boolean) | null = null;
@@ -194,6 +196,9 @@ export class Session implements CommandSink {
       this.peerId = peerId;
       window.clearTimeout(this.connectTimer ?? undefined);
       cb.onPhase("connected");
+      // 5-hour session cap: auto-disconnect — the user can reconnect with the same password
+      window.clearTimeout(this.sessionLimitTimer ?? undefined);
+      this.sessionLimitTimer = window.setTimeout(() => this.handleClose("Session ended after 5 hours. Open the page again to reconnect with the same password."), SESSION_LIMIT_MS);
       this.startRtt();
     });
 
@@ -312,6 +317,8 @@ export class Session implements CommandSink {
     this.disposed = true;
     window.clearTimeout(this.connectTimer ?? undefined);
     window.clearTimeout(this.rttTimer ?? undefined);
+    window.clearTimeout(this.sessionLimitTimer ?? undefined);
+    this.sessionLimitTimer = null;
     this.opts.cb.onPhase("closed", reason);
     void this.close();
   }
@@ -322,6 +329,8 @@ export class Session implements CommandSink {
     this.disposed = true;
     window.clearTimeout(this.connectTimer ?? undefined);
     window.clearTimeout(this.rttTimer ?? undefined);
+    window.clearTimeout(this.sessionLimitTimer ?? undefined);
+    this.sessionLimitTimer = null;
     await this.close();
   }
 

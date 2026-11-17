@@ -1,8 +1,8 @@
 {
   "name": "@remotex/web",
   "private": true,
-  "version": "0.1.0",
-  "description": "RemoteX web client — control your computer from any browser. Deployed to GitHub Pages.",
+  "version": "6.0.0",
+  "description": "RemoteX web client - control your computer from any browser. Deployed to GitHub Pages.",
   "license": "MIT",
   "type": "module",
   "scripts": {

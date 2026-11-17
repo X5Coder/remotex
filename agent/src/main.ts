@@ -2,20 +2,20 @@
  * RemoteX — Electron main process.
  *
  * Small visible window with:
- *   - the PERMANENT Room ID (created once, saved in userData)
- *   - the per-launch RANDOM password (memory only)
- *   - connection status, keep-awake status, fps/bitrate telemetry
- *   - a "Stop session" button (drops the client, re-arms the room)
+ *   - the PERMANENT Device ID (created once, saved in userData)
+ *   - the per-launch RANDOM password (memory only; rotatable from the window)
+ *   - connection status only — nothing else
+ *   - a "Terminate" button (drops the connected user, re-arms the room)
  *
  * A hidden window (dist/hidden.html) owns WebRTC + capture; this process owns
  * the OS: input injection, clipboard, power settings, tray.
  */
-import { app, BrowserWindow, Tray, Menu, ipcMain, clipboard, powerSaveBlocker, screen, nativeImage, desktopCapturer, session } from "electron";
+import { app, BrowserWindow, Tray, Menu, ipcMain, clipboard, powerSaveBlocker, screen, nativeImage, desktopCapturer, session, Notification } from "electron";
 import * as path from "path";
 import * as fs from "fs";
-import { loadOrCreateIdentity, createLaunchPassword } from "./config";
+import { loadOrCreateIdentity, createLaunchPassword, regeneratePassword } from "./config";
 import { createDriver, clipboardHash, type InputDriver } from "./input";
-import { startLanServer, lanInfo, stopLanServer } from "./lan";
+import { startLanServer, stopLanServer } from "./lan";
 
 // --------------------------------------------------------------- singleton --
 const gotLock = app.requestSingleInstanceLock();
@@ -33,20 +33,31 @@ let keepAwake: { status: string; detail: string; isAdmin: boolean; stop(): void 
 let powerSaveBlockerIds: number[] = [];
 
 const identity = loadOrCreateIdentity();
-const password = createLaunchPassword();
+/** per-launch password — mutable so the window's refresh button can rotate it */
+let password = createLaunchPassword();
 
 /** clipboard-sync echo guards */
 let lastClipboardHash: string | null = null;
 let lastAgentClipboardWrite = 0;
-let lastStats: { fps: number; mbps: number; encoder: string; rung: number; rttMs: number | null } = { fps: 0, mbps: 0, encoder: "", rung: 0, rttMs: null };
+
+/** OS-level external notification — used when someone connects / disconnects, even if the window is hidden */
+function notify(title: string, body: string) {
+  try {
+    if (!Notification.isSupported()) return;
+    const n = new Notification({ title, body, icon: path.join(__dirname, "icon.png") });
+    n.show();
+  } catch (err) {
+    console.error("[notify] failed:", err);
+  }
+}
 
 // ------------------------------------------------------------ window & tray --
 function createMainWindow() {
   win = new BrowserWindow({
-    width: 470,
-    height: 640,
-    minWidth: 420,
-    minHeight: 600,
+    width: 430,
+    height: 470,
+    minWidth: 400,
+    minHeight: 430,
     resizable: true,
     maximizable: false,
     frame: false,
@@ -83,7 +94,7 @@ function createTray() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Show RemoteX", click: () => ensureWindow() },
-      { label: "Stop session", click: () => stopSession() },
+      { label: "Terminate", click: () => stopSession() },
       { type: "separator" },
       { label: "Quit RemoteX", click: () => app.quit() },
     ])
@@ -151,9 +162,6 @@ function stopPower() {
   }
   powerSaveBlockerIds = [];
 }
-
-/** resolution the screencast is actually captured at (physical pixels of the captured monitor) */
-let captureW = 0, captureH = 0;
 
 // ------------------------------------------------------------- video handler --
 function installDisplayCaptureHandlers() {
@@ -255,8 +263,6 @@ function registerIpc() {
   ipcMain.handle("agent:identity", () => ({
     roomId: identity.roomId,
     password,
-    power: { status: keepAwake?.status ?? "unknown", detail: keepAwake?.detail ?? "unknown", isAdmin: keepAwake?.isAdmin ?? false },
-    lan: lanInfo(),
   }));
 
   ipcMain.handle("agent:copy", async (_e, text: unknown) => {
@@ -269,7 +275,21 @@ function registerIpc() {
     const p = payload as { text?: string; tone?: string };
     if (p?.text) console.log("[status]", p.tone ?? "", "-", p.text);
     win?.webContents.send("status:update", payload);
-    if (tray) tray.setToolTip(p?.tone === "connected" ? "RemoteX Agent — session active" : "RemoteX Agent — waiting");
+    if (tray) tray.setToolTip(p?.tone === "connected" ? "RemoteX — someone is connected" : "RemoteX — click to open");
+  });
+
+  /** external OS notification requested by the hidden capture window (connect / disconnect / refusal) */
+  ipcMain.handle("agent:notify", (_e, payload: unknown) => {
+    const p = payload as { title?: string; body?: string };
+    notify(typeof p?.title === "string" && p.title.trim() ? p.title.trim() : "RemoteX", typeof p?.body === "string" ? p.body : "");
+  });
+
+  /** rotate the password on demand — the hidden window re-arms the room with the new one (old password dies instantly) */
+  ipcMain.handle("agent:new-password", () => {
+    password = regeneratePassword();
+    try { hidden?.webContents.send("session:new-password", password); } catch (err) { console.error("[password] rotation failed:", err); }
+    console.log("[password] rotated on user request");
+    return { password };
   });
 
   ipcMain.handle("session:stop", () => stopSession());
@@ -296,29 +316,11 @@ function registerIpc() {
     return { x: pos.x, y: pos.y };
   });
 
-  ipcMain.handle("screen:cursor", () => {
-    const size = driver?.screenSize() ?? { width: 1, height: 1 };
-    const pos = driver?.cursorPosition() ?? { x: 0, y: 0 };
-    // normalize against the CAPTURED resolution when known — exact 1:1 with the video pixels;
-    // falls back to Electron's DIP-sized primary display otherwise
-    const w = captureW || size.width, h = captureH || size.height;
-    return { nx: pos.x / Math.max(1, w - 1), ny: pos.y / Math.max(1, h - 1) };
-  });
-
   ipcMain.handle("platform:info", () => process.platform);
 
-  // resolves only after THIS command has actually been applied by the chain — the hidden
-  // window uses this to know exactly when the OS cursor jumped (cursor-ownership arbitration)
+  // resolves only after THIS command has actually been applied by the serial input chain —
+  // the hidden window uses this to keep input strictly ordered relative to injected events
   ipcMain.handle("input:inject", (_e, msg: unknown) => injectInputAsync(msg));
-
-  ipcMain.handle("capture:dimensions", (_e, dims: unknown) => {
-    const d = dims as { width?: number; height?: number };
-    if (Number.isFinite(d?.width) && Number.isFinite(d?.height) && (d!.width as number) > 0 && (d!.height as number) > 0) {
-      captureW = Math.floor(d!.width as number);
-      captureH = Math.floor(d!.height as number);
-      console.log(`[capture] dimensions reported: ${captureW}x${captureH}`);
-    }
-  });
 
   ipcMain.handle("capture:primary-source", async () => {
     try {
@@ -352,22 +354,12 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle("stats:report", (_e, stats: unknown) => {
-    lastStats = { ...lastStats, ...(stats as object) };
-    win?.webContents.send("status:update", { ...lastStats, kind: "stats" });
-  });
-
-  ipcMain.handle("rtt:report", (_e, ms: unknown) => {
-    const rttMs = typeof ms === "number" ? Math.round(ms) : null;
-    if (rttMs !== null) lastStats.rttMs = rttMs;
-    win?.webContents.send("status:update", { ...lastStats, kind: "stats" });
-  });
 }
 
 function stopSession() {
   driver?.reset();
   hidden?.webContents.send("session:stop");
-  win?.webContents.send("status:update", { tone: "waiting", text: "Session stopped — ready for a new connection" });
+  win?.webContents.send("status:update", { tone: "waiting", text: "Terminated — ready for a new connection" });
 }
 
 // ---------------------------------------------------------------- lifecycle --

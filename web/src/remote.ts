@@ -59,7 +59,6 @@ export class RemoteSurface {
   private backdrop = $("backdrop");
   private canvas = $<HTMLCanvasElement>("glow" as never) as HTMLCanvasElement;
   private ctx = this.canvas.getContext("2d")!;
-  private hint = $("hint");
   private cursor = $("cursor");
   private shade = $("shade");
   private toastEl = $("toast");
@@ -406,7 +405,6 @@ export class RemoteSurface {
     this.app.setPointerCapture(this.pid);
     this.S.down = true;
     this.S.fx = e.clientX; this.S.fy = e.clientY;
-    this.hint.classList.add("hide");
     this.kick();
   };
 

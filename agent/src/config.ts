@@ -68,3 +68,11 @@ export function createLaunchPassword(): string {
   if (pinned) console.log("[config] REMOTEX_PASSWORD set but invalid shape — using random");
   return generatePassword();
 }
+
+/**
+ * On-demand password rotation (the refresh button in the window). Always a fresh
+ * random password — never the env pin, so the user can actually roll the dice.
+ */
+export function regeneratePassword(): string {
+  return generatePassword();
+}
