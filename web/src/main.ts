@@ -19,6 +19,27 @@ let inRemote = false;
 
 const connect = new ConnectController((roomId, password) => startSession(roomId, password));
 
+/* ---------- soft entrance for the connect card (transform only) ---------- */
+(() => {
+  const card = document.querySelector("#connectScreen .connectCard");
+  if (!card) return;
+  try {
+    (card as HTMLElement).animate(
+      [{ opacity: 0, transform: "translateY(18px) scale(.97)" }, { opacity: 1, transform: "none" }],
+      { duration: 480, easing: "cubic-bezier(.32,.72,.25,1)" }
+    );
+  } catch { /* older browsers — static card is fine */ }
+})();
+
+/* ---------- hardware/browser Back → return to the connect screen (don't exit the site) ---------- */
+try { history.replaceState({ screen: "connect" }, "", location.href); } catch { /* private mode */ }
+let skipPop = false;
+window.addEventListener("popstate", () => {
+  if (!inRemote) return;
+  skipPop = true;
+  leaveRemote(); // back to the connect screen — the entry we pushed is consumed by the browser
+});
+
 /* ---------- toast ---------- */
 let toastT = 0;
 function toast(msg: string) {
@@ -92,6 +113,8 @@ function startSession(roomId: string, password: string) {
 function enterRemote() {
   if (inRemote) return; // silent recovery re-dial fires "connected" again here — keep the existing surface
   inRemote = true;
+  // one Back gesture returns to the connect screen instead of leaving the site
+  try { history.pushState({ screen: "remote" }, "", location.href); } catch { /* private mode */ }
   // fade the connect screen out first — hide it only when the fade has finished (inline styles are reset so show() works next time)
   const cs = document.getElementById("connectScreen")!;
   cs.animate(
@@ -122,6 +145,12 @@ function enterRemote() {
 
 function leaveRemote() {
   inRemote = false;
+  // if WE pushed the remote history entry (not the user's Back gesture), pop it without triggering a loop
+  const pushed = !skipPop && history.state?.screen === "remote";
+  skipPop = false;
+  if (pushed) {
+    try { history.back(); } catch { /* private mode */ } // back to the connect entry
+  }
   releaseWakeLock();
   session = null;
   remote?.setStream(null);
