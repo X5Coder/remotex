@@ -36,6 +36,31 @@ let driver: InputDriver | null = null;
 let keepAwake: { status: string; detail: string; isAdmin: boolean; stop(): void } | null = null;
 let powerSaveBlockerIds: number[] = [];
 
+/**
+ * One-time userData migration (v6.0.0 rebrand): the package name changed from
+ * "remotex-agent" to "remotex", which would point userData at a fresh empty
+ * folder — and orphan the user's PERMANENT Device ID and the power-settings
+ * backup. Carry both over before anything reads them.
+ */
+function migrateLegacyUserData() {
+  const legacyDir = path.join(app.getPath("appData"), "remotex-agent");
+  const newDir = app.getPath("userData");
+  if (legacyDir === newDir) return;
+  for (const file of ["remotex-agent.json", "power-backup-windows.json", "turn.json"]) {
+    const src = path.join(legacyDir, file);
+    const dst = path.join(newDir, file);
+    try {
+      if (fs.existsSync(src) && !fs.existsSync(dst)) {
+        fs.mkdirSync(newDir, { recursive: true });
+        fs.copyFileSync(src, dst);
+        console.log(`[config] migrated legacy ${file} to the new userData path`);
+      }
+    } catch { /* soft-fail — a fresh Device ID will be generated */ }
+  }
+}
+
+migrateLegacyUserData();
+
 const identity = loadOrCreateIdentity();
 /** per-launch password — mutable so the window's refresh button can rotate it */
 let password = createLaunchPassword();
