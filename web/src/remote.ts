@@ -943,18 +943,21 @@ export class RemoteSurface {
   closeFull() {
     if (!this.full || this.anim || this.busy) return;
     const wrap = this.wrap.getBoundingClientRect();
-    const to = this.stateOfRect(wrap);
     const from = this.cur!;
     this.land = false;
     document.body.classList.remove("land");
     this.screenEl.classList.remove("land");
     this.backdrop.classList.remove("show");
-    this.SW = to.w; this.SH = to.h;
     // shade starts at its CURRENT opacity (0 in land, 1 in focus) — never resurrects a hidden shade
     const so = +(this.shade.style.opacity || 0);
-    this.shade.style.opacity = "0";
-    // real FLIP: from the current (possibly full-land) rect back to the small wrap — cinematic spring-out
-    this.flip(to, from, () => {
+    // REAL FLIP: park the element at its FINAL (small) rect first, then animate from the OLD visual
+    // state back to identity — the screen never jumps, it glides home (no layout snap, no "drop")
+    const t = { left: wrap.left, top: wrap.top, w: wrap.width, h: wrap.height, rot: 0 };
+    const L = this.stateOfT(t);
+    this.place(t);
+    this.cur = L;
+    this.shade.style.opacity = String(so); // keep it hidden until the fade-out animation runs
+    this.flip(L, from, () => {
       this.full = false;
       this.screenEl.classList.remove("full");
       const s = this.screenEl.style;
