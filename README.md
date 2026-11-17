@@ -1,4 +1,6 @@
-﻿# RemoteX
+﻿<p align="center"><img src="icon.svg" width="96" height="96" alt="RemoteX — laptop and phone, the same screen in your hands"></p>
+
+# RemoteX
 
 **Control your computer from any browser — peer-to-peer, end-to-end encrypted, no account, no server you own.**
 
