@@ -1,17 +1,20 @@
 /**
- * Generates dist/icon.png (512x512) + dist/icon.ico (256x256) — dark rounded square
- * with a gold glyph: a monitor (left) connected to a phone (right) by a dashed
- * wireless arc above them. Same design language as the previous icon (dark slate
- * body + gold glyph, antialias-free hard edges). No external dependencies; used
- * for the tray, the window/taskbar icon, and by electron-builder (mac/linux
- * require >=512px). Also writes web/public/icon.png (site icon == app icon).
+ * Generates dist/icon.png (512x512) + dist/icon.ico (256x256) — light "site" icon:
+ * a silver-to-white rounded square with a dark-slate glyph: a monitor (left)
+ * and a phone (right, filled with a light screen) joined by a faint dotted
+ * wireless arc above them. Matches the web client's favicon (same file ships).
+ * No external dependencies; used for the tray, the window/taskbar icon, and by
+ * electron-builder (mac/linux require >=512px).
  */
 const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
 
-const BG = [43, 51, 64]; // #2b3340
-const GOLD = [184, 145, 58]; // #b8913a
+const BG_TOP = [255, 255, 255]; // #ffffff (top of the silver gradient)
+const BG_BOT = [217, 222, 229]; // #d9dee5 (bottom)
+const INK = [31, 39, 51];       // #1f2733 (the glyph)
+const SOFT = [91, 102, 118];    // #5b6676 (dotted arc)
+const SCREEN = [236, 239, 243]; // #eceff3 (phone screen — the site's page color)
 const BIG = 512; // electron-builder floor for mac (512x512) and linux
 const ICO = 256; // Vista+ shortcut icon
 const BASE = 32; // geometry is authored for a 32px grid, scaled by s = SIZE/BASE
@@ -52,27 +55,34 @@ function render(SIZE) {
     for (let x = 0; x < SIZE; x++) {
       const i = (y * SIZE + x) * 4;
       if (!inRoundRect(x, y, 0, 0, MAX, MAX, RADIUS)) { px[i + 3] = 0; continue; }
-      // subtle vertical gradient on the dark body
+      // subtle vertical gradient on the silver body (white at the top)
       const t = y / (SIZE - 1);
-      px[i] = Math.round(BG[0] + 14 * t);
-      px[i + 1] = Math.round(BG[1] + 14 * t);
-      px[i + 2] = Math.round(BG[2] + 16 * t);
+      px[i] = Math.round(BG_TOP[0] + (BG_BOT[0] - BG_TOP[0]) * t);
+      px[i + 1] = Math.round(BG_TOP[1] + (BG_BOT[1] - BG_TOP[1]) * t);
+      px[i + 2] = Math.round(BG_TOP[2] + (BG_BOT[2] - BG_TOP[2]) * t);
       px[i + 3] = 255;
-      // glyph (gold): monitor (left) -> phone (right), dashed wireless arc above
-      let gold =
-        outline(x, y, 3, 6, 18, 17, 2, 2) ||       // monitor frame (hollow)
-        inRect(x, y, 9.4, 16.4, 11.6, 22.0) ||     // monitor neck
-        inRect(x, y, 6.5, 21.8, 14.5, 23.4) ||     // monitor base
-        outline(x, y, 20, 10, 28.5, 26.5, 2, 2) || // phone frame (hollow)
-        inRect(x, y, 23.25, 13.1, 25.25, 13.9) ||  // phone speaker slit
-        fillCircle(24.25, 23.5, 0.9)(x, y);        // phone home dot
-      if (!gold) {
-        for (const [cx, cy] of dotCenters) {
-          if (fillCircle(cx, cy, 1.05)(x, y)) { gold = true; break; }
-        }
+      // glyph: monitor (outline, left) + phone (filled, right) + faint dotted arc above
+      let ink =
+        outline(x, y, 2.5, 6.5, 19, 17.5, 2.4, 2.3) || // monitor frame (hollow)
+        inRect(x, y, 10.2, 16.2, 11.8, 22.3) ||       // monitor neck
+        inRect(x, y, 6.5, 22.2, 15.5, 23.7) ||        // monitor base
+        inRoundRect(x, y, R(21), R(7.5), R(29.3), R(27.5), R(2.7)); // phone body (filled)
+      const cut =
+        inRoundRect(x, y, R(22.7), R(9.6), R(27.6), R(10.6), R(0.5)) ||  // speaker slit
+        inRoundRect(x, y, R(22.7), R(12.8), R(27.6), R(24.9), R(1.3));   // screen cut-out
+      if (ink && !cut) {
+        px[i] = INK[0]; px[i + 1] = INK[1]; px[i + 2] = INK[2]; px[i + 3] = 255;
+        continue;
       }
-      if (gold) {
-        px[i] = GOLD[0]; px[i + 1] = GOLD[1]; px[i + 2] = GOLD[2]; px[i + 3] = 255;
+      if (cut) {
+        px[i] = SCREEN[0]; px[i + 1] = SCREEN[1]; px[i + 2] = SCREEN[2]; px[i + 3] = 255;
+        continue;
+      }
+      for (const [cx, cy] of dotCenters) {
+        if (fillCircle(cx, cy, 1.0)(x, y)) {
+          px[i] = SOFT[0]; px[i + 1] = SOFT[1]; px[i + 2] = SOFT[2]; px[i + 3] = 255;
+          break;
+        }
       }
     }
   }

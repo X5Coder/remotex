@@ -1,30 +1,33 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2b3340"/>
-      <stop offset="1" stop-color="#394150"/>
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d9dee5"/>
     </linearGradient>
   </defs>
-  <!-- body: dark rounded square (rx=112 == 7/32 * 512), vertical gradient (lighter toward bottom, matching the PNG) -->
+  <!-- body: silver rounded square (rx=112 == 7/32 * 512), white-to-silver vertical gradient -->
   <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <!-- dashed wireless link: 6 dots on the quadratic bezier (80,99.2) C(256,3.2) -> (432,137.6) -->
-  <g fill="#b8913a">
-    <circle cx="108.1" cy="85.3" r="16.8"/>
-    <circle cx="164.6" cy="66.4" r="16.8"/>
-    <circle cx="220.8" cy="59.2" r="16.8"/>
-    <circle cx="277.2" cy="63.9" r="16.8"/>
-    <circle cx="333.4" cy="80.4" r="16.8"/>
-    <circle cx="389.8" cy="108.7" r="16.8"/>
-    <!-- monitor (left): outer rounded rect (48,96)-(288,272), 32px border; stroke is centered, so path is inset by 16 -->
-    <rect x="64" y="112" width="208" height="128" rx="16" fill="none" stroke="#b8913a" stroke-width="32"/>
-    <!-- monitor neck + base -->
-    <rect x="150.4" y="262.4" width="35.2" height="89.6"/>
-    <rect x="104" y="348.8" width="128" height="25.6"/>
-    <!-- phone (right): outer rounded rect (320,160)-(456,424), 32px border -->
-    <rect x="336" y="176" width="104" height="232" rx="16" fill="none" stroke="#b8913a" stroke-width="32"/>
-    <!-- phone speaker slit -->
-    <rect x="372" y="209.6" width="32" height="12.8"/>
-    <!-- phone home dot -->
-    <circle cx="388" cy="376" r="14.4"/>
+  <g>
+    <!-- dashed wireless link: 6 dots on the quadratic bezier (80,99.2) C(256,3.2) -> (432,137.6) -->
+    <g fill="#5b6676">
+      <circle cx="108.1" cy="85.3" r="16"/>
+      <circle cx="164.6" cy="66.4" r="16"/>
+      <circle cx="220.8" cy="59.2" r="16"/>
+      <circle cx="277.2" cy="63.9" r="16"/>
+      <circle cx="333.4" cy="80.4" r="16"/>
+      <circle cx="389.8" cy="108.7" r="16"/>
+    </g>
+    <g fill="#1f2733">
+      <!-- monitor (left): outer rounded rect (40,104)-(304,280), stroke centered, inset by half the 36-unit border -->
+      <rect x="59" y="123" width="226" height="138" rx="18" fill="none" stroke="#1f2733" stroke-width="37"/>
+      <!-- monitor neck + base -->
+      <rect x="163.2" y="259.2" width="25.6" height="97.6"/>
+      <rect x="104" y="355.2" width="144" height="24"/>
+      <!-- phone (right): filled rounded rect (336,120)-(469,440) -->
+      <rect x="336" y="120" width="133" height="320" rx="43"/>
+    </g>
+    <!-- phone speaker slit + screen cut-out (site page color) -->
+    <rect x="363.2" y="153.6" width="78.4" height="16" rx="8" fill="#eceff3"/>
+    <rect x="363.2" y="204.8" width="78.4" height="193.6" rx="21" fill="#eceff3"/>
   </g>
 </svg>
