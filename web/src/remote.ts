@@ -152,7 +152,11 @@ export class RemoteSurface {
     // desktop (mouse) direct mapping
     listen(this.screenEl, "pointermove", this.onMouseMove as EventListener);
     listen(this.screenEl, "pointerdown", this.onMouseDown as EventListener);
-    listen(this.screenEl, "pointerup", this.onMouseUp as EventListener);
+    // pointerup rides the DOCUMENT capture: a release can land anywhere (on a chrome
+    // button, or after the browser swallows a right-click's pointer capture) - the host
+    // must ALWAYS receive the up, or the button stays "held" and the context menu
+    // never opens on the remote PC.
+    listen(document, "pointerup", this.onMouseUp as EventListener, true);
     listen(this.screenEl, "wheel", this.onWheel as EventListener, { passive: false } as AddEventListenerOptions);
 
     // tablet direct-touch mode
@@ -591,20 +595,26 @@ export class RemoteSurface {
     if (!this.mvRaf) this.mvRaf = requestAnimationFrame(this.flushMove);
   };
 
+  /** the button currently held on the HOST (set on screenEl pointerdown, released by any document pointerup) */
+  private hostBtnDown: MouseButton | null = null;
   private BTN: MouseButton[] = ["left", "middle", "right"];
 
   private onMouseDown = (e: PointerEvent) => {
     if (this.mode !== "mouse" || e.pointerType !== "mouse") return;
     e.preventDefault();
     this.screenEl.setPointerCapture(e.pointerId);
+    this.hostBtnDown = this.BTN[e.button] ?? "left";
     const p = this.norm(e);
-    this.sink.pointer("down", this.BTN[e.button] ?? "left", +p.x.toFixed(4), +p.y.toFixed(4));
+    this.sink.pointer("down", this.hostBtnDown, +p.x.toFixed(4), +p.y.toFixed(4));
   };
 
   private onMouseUp = (e: PointerEvent) => {
     if (this.mode !== "mouse" || e.pointerType !== "mouse") return;
+    const held = this.hostBtnDown;
+    if (!held) return; // this release pairs with a chrome button's own gesture (holdButton), not the host
+    this.hostBtnDown = null;
     const p = this.norm(e);
-    this.sink.pointer("up", this.BTN[e.button] ?? "left", +p.x.toFixed(4), +p.y.toFixed(4));
+    this.sink.pointer("up", held, +p.x.toFixed(4), +p.y.toFixed(4));
   };
 
   private onWheel = (e: WheelEvent) => {
