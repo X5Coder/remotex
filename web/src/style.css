@@ -1,4 +1,4 @@
-/* RemoteX web client — X5Coder design language (Sora + Cairo Variable, light by default, dark on demand) */
+﻿/* RemoteX web client â€” X5Coder design language (Sora + Cairo Variable, light by default, dark on demand) */
 
 @font-face{font-family:'Sora Variable';font-style:normal;font-weight:100 900;font-display:swap;src:url('./fonts/sora-latin-wght-normal.woff2') format('woff2')}
 @font-face{font-family:'Sora Variable';font-style:normal;font-weight:100 900;font-display:swap;src:url('./fonts/sora-latin-ext-wght-normal.woff2') format('woff2');unicode-range:U+0100-017F}
@@ -181,9 +181,9 @@ body{
 body.hide-arrow #cursor{display:none}
 html.hide-arrow #cursor{display:none}
 
-/* side rail — always visible, tab expands it with a pop animation */
+/* side rail â€” always visible, tab expands it with a pop animation */
 .rail{
-  position:fixed;right:10px;top:50%;z-index:46;width:46px;
+  position:fixed;right:10px;top:50%;z-index:56;width:46px;
   display:flex;flex-direction:column;gap:5px;padding:7px 6px;border-radius:18px;
   background:rgba(16,18,23,.55);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
   border:1px solid rgba(255,255,255,.16);box-shadow:0 14px 36px rgba(0,0,0,.4);
@@ -248,3 +248,4 @@ body.tablet .dock{display:none !important}
 @media (prefers-reduced-motion: reduce){
   *{animation-duration:.01ms !important;transition-duration:.01ms !important}
 }
+

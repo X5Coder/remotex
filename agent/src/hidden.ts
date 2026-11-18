@@ -438,9 +438,10 @@ class HiddenAgent {
   private async sampleStats() {
     if (!this.peerId) return;
     const rx = this.lastRxAt;
-    if (rx && Date.now() - rx > 12_000) {
-      // 12 s — tolerant of mobile timer throttling, still fast enough to free a dead seat
-      log("heartbeat lost — dropping the dead seat");
+    if (rx && Date.now() - rx > 60_000) {
+      // 60 s of TOTAL silence — mobile tabs legitimately freeze JS when the screen locks;
+      // only a truly ghosted peer is dropped. Active users never notice any of this.
+      log("peer silent for 60 s - dropping the dead seat");
       this.dropSeat("Session ended - connection lost.");
       return;
     }
