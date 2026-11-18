@@ -162,9 +162,13 @@ export class RemoteSurface {
     listen(this.screenEl, "pointercancel", this.tabletUp as EventListener);
 
     // side rail buttons (left/right click, keyboard, exit) - the only chrome left on the remote screen
+    // bottom bar buttons (grid) + floating overlay buttons (land/fullscreen)
     this.holdButton($id("leftBtn") as HTMLButtonElement, "left");
     this.holdButton($id("rightBtn") as HTMLButtonElement, "right");
     this.bindKb($id("kbBtn") as HTMLButtonElement);
+    this.holdButton($id("leftBtn2") as HTMLButtonElement, "left");
+    this.holdButton($id("rightBtn2") as HTMLButtonElement, "right");
+    this.bindKb($id("kbBtn2") as HTMLButtonElement);
     $id("exitBtn").addEventListener("click", () => { if (this.kbOpen) this.closeKb(); if (this.land) void this.rotateFull(); else if (this.full) this.closeFull(); });
     $id("backdrop").addEventListener("click", () => this.closeFull());
 
