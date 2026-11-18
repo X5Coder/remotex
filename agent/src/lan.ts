@@ -28,6 +28,7 @@ const MIME: Record<string, string> = {
   ".json": "application/json",
   ".svg": "image/svg+xml",
   ".map": "application/json",
+  ".woff2": "font/woff2",
   ".webmanifest": "application/manifest+json",
   ".txt": "text/plain; charset=utf-8",
 };

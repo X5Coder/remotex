@@ -1,9 +1,9 @@
 ﻿/* RemoteX web client â€” X5Coder design language (Sora + Cairo Variable, light by default, dark on demand) */
 
-@font-face{font-family:'Sora Variable';font-style:normal;font-weight:100 900;font-display:swap;src:url('./fonts/sora-latin-wght-normal.woff2') format('woff2')}
-@font-face{font-family:'Sora Variable';font-style:normal;font-weight:100 900;font-display:swap;src:url('./fonts/sora-latin-ext-wght-normal.woff2') format('woff2');unicode-range:U+0100-017F}
-@font-face{font-family:'Cairo Variable';font-style:normal;font-weight:100 1000;font-display:swap;src:url('./fonts/cairo-latin-wght-normal.woff2') format('woff2')}
-@font-face{font-family:'Cairo Variable';font-style:normal;font-weight:100 1000;font-display:swap;src:url('./fonts/cairo-arabic-wght-normal.woff2') format('woff2');unicode-range:U+0600-06FF,U+0750-077F}
+@font-face{font-family:'Sora Variable';font-style:normal;font-weight:100 900;font-display:swap;src:url('../fonts/sora-latin-wght-normal.woff2') format('woff2')}
+@font-face{font-family:'Sora Variable';font-style:normal;font-weight:100 900;font-display:swap;src:url('../fonts/sora-latin-ext-wght-normal.woff2') format('woff2');unicode-range:U+0100-017F}
+@font-face{font-family:'Cairo Variable';font-style:normal;font-weight:100 1000;font-display:swap;src:url('../fonts/cairo-latin-wght-normal.woff2') format('woff2')}
+@font-face{font-family:'Cairo Variable';font-style:normal;font-weight:100 1000;font-display:swap;src:url('../fonts/cairo-arabic-wght-normal.woff2') format('woff2');unicode-range:U+0600-06FF,U+0750-077F}
 
 :root{
   --bg:#ffffff;
@@ -165,4 +165,5 @@ body.tablet .dock{display:none !important}
 @media (prefers-reduced-motion: reduce){
   *{animation-duration:.01ms !important;transition-duration:.01ms !important}
 }
+
 
