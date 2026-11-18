@@ -24,18 +24,18 @@
   color-scheme:light;
 }
 [data-theme="dark"]{
-  --bg:#0f1115;
-  --bg-soft:#16181d;
-  --card:#171920;
-  --ink:#f3f4f6;
-  --muted:#9ca3af;
-  --line:#262931;
-  --accent:#e5484d;
-  --accent-ink:#ff6b70;
-  --accent-soft:rgba(229,72,77,.12);
-  --ok:#4ade80;
-  --err:#ff6b70;
-  --shadow:0 24px 48px -24px rgba(0,0,0,.6);
+  --bg:#000000;
+  --bg-soft:#101010;
+  --card:#141414;
+  --ink:#ededed;
+  --muted:#8f8f8f;
+  --line:#232323;
+  --accent:#f0f0f0;
+  --accent-ink:#ffffff;
+  --accent-soft:rgba(255,255,255,.07);
+  --ok:#a3a3a3;
+  --err:#c9c9c9;
+  --shadow:0 24px 48px -24px rgba(0,0,0,.85);
   color-scheme:dark;
 }
 
@@ -52,17 +52,7 @@ body{
   transition:background-color .25s ease,color .25s ease;
 }
 
-/* ============ toolbar (connect page only) ============ */
-.toolbar{
-  height:56px;display:flex;align-items:center;justify-content:space-between;
-  padding:0 max(14px, env(safe-area-inset-left)) 0 max(18px, env(safe-area-inset-left));
-  border-bottom:1px solid var(--line);
-  background:var(--bg);
-  animation:fadeDown .45s cubic-bezier(.32,.72,.25,1) both;
-}
-.brand{display:flex;align-items:center;gap:9px;text-decoration:none;color:inherit}
-.brandMark{width:26px;height:26px;display:block}
-.brandName{font-weight:750;font-size:15px;letter-spacing:.2px}
+/* ============ icon buttons ============ */
 .iconBtn{width:38px;height:38px;border:1px solid transparent;border-radius:12px;background:transparent;color:var(--muted);
   display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s,color .15s,transform .15s}
 .iconBtn:hover{background:var(--accent-soft);color:var(--accent)}
@@ -71,6 +61,15 @@ body{
 .iconBtn svg{width:19px;height:19px}
 .iconBtn.small svg{width:16px;height:16px}
 .iconBtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+
+/* dark monochrome: text/surfaces that hardcode white-on-accent must flip to black */
+[data-theme="dark"] .connectBtn{color:#000}
+[data-theme="dark"] .stepNum{color:#000}
+[data-theme="dark"] .spin{border-color:rgba(0,0,0,.35);border-top-color:#000}
+[data-theme="dark"] .switch[aria-checked="true"] .knob{background:#000}
+[data-theme="dark"] .ghLink:hover{color:#fff}
+[data-theme="dark"] .segBtn.isOn{box-shadow:0 1px 4px rgba(0,0,0,.6)}
 
 /* ============ connect screen ============ */
 .connectScreen{height:100%;display:flex;flex-direction:column;overflow-y:auto;background:var(--bg);background-image:radial-gradient(120% 90% at 50% -30%, var(--accent-soft), transparent 55%)}
@@ -125,6 +124,7 @@ body{
 .ghLink:hover{color:var(--ink)}
 .ghLink svg{width:15px;height:15px}
 .verTag{font-size:10px;color:var(--muted);letter-spacing:1px}
+.footRight{display:flex;align-items:center;gap:8px}
 
 @media (max-width:480px){
   .steps{flex-direction:column;gap:6px}

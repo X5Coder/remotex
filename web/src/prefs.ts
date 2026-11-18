@@ -20,7 +20,7 @@ export function applyTheme(theme: Theme) {
     btn.classList.toggle("isOn", btn.dataset.themeBtn === theme);
   });
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", theme === "dark" ? "#0f1115" : "#ffffff");
+  if (meta) meta.setAttribute("content", theme === "dark" ? "#000000" : "#ffffff");
 }
 
 export function readHideArrow(): boolean {
