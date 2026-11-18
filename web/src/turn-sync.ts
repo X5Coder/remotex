@@ -49,23 +49,29 @@ function parseSyncResponse(raw: unknown): SyncedTurnConfig | null {
   return cfg;
 }
 
-/** JSONP call — Apps Script cannot set CORS headers, so a <script> tag is the one reliable transport. */
+/** JSONP call — Apps Script cannot set CORS headers, so a <script> tag is the one reliable transport.
+ *  NOTE: Apps Script cold-starts routinely exceed 5 s, so the timeout is generous. The callback is
+ *  NEVER deleted before the script has executed — otherwise the response throws
+ *  "rxsync_... is not defined" (which is exactly what happened in production). */
 function jsonp(url: string, timeoutMs: number): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const cb = `rxsync_${Math.random().toString(36).slice(2)}_${Date.now()}`;
     const script = document.createElement("script");
     let settled = false;
-    const finish = (fn: () => void) => {
+    const settle = (fn: () => void) => {
       if (settled) return;
       settled = true;
       window.clearTimeout(timer);
-      delete (window as unknown as Record<string, unknown>)[cb];
-      script.remove();
       fn();
     };
-    const timer = window.setTimeout(() => finish(() => reject(new Error("sync timeout"))), timeoutMs);
-    (window as unknown as Record<string, unknown>)[cb] = (data: unknown) => finish(() => resolve(data));
-    script.onerror = () => finish(() => reject(new Error("sync unreachable")));
+    const timer = window.setTimeout(() => settle(() => reject(new Error("sync timeout"))), timeoutMs);
+    (window as unknown as Record<string, unknown>)[cb] = (data: unknown) => {
+      settle(() => resolve(data));
+      // the script has now executed — safe to remove
+      script.remove();
+      delete (window as unknown as Record<string, unknown>)[cb];
+    };
+    script.onerror = () => settle(() => { script.remove(); reject(new Error("sync unreachable")); });
     script.src = `${url}&callback=${cb}`;
     document.head.appendChild(script);
   });
@@ -76,7 +82,7 @@ export function syncEnabled(): boolean {
   return !SYNC_EXEC_URL.includes("PASTE_YOUR_EXEC_URL_HERE");
 }
 
-export async function fetchSyncedTurn(roomId: string, password: string, timeoutMs = 5_000): Promise<SyncedTurnConfig | null> {
+export async function fetchSyncedTurn(roomId: string, password: string, timeoutMs = 20_000): Promise<SyncedTurnConfig | null> {
   if (!syncEnabled()) return null;
   try {
     const payload = b64urlEncode(JSON.stringify({ action: "fetch", roomId, password }));
