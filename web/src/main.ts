@@ -203,6 +203,10 @@ function enterRemote() {
 
 function leaveRemote() {
   inRemote = false;
+  const s = session;
+  session = null;
+  // Back means goodbye — actually close the room so the agent sees the leave (status flips to waiting)
+  if (s) void s.stop();
   // if WE pushed the remote history entry (not the user's Back gesture), pop it without triggering a loop
   const pushed = !skipPop && history.state?.screen === "remote";
   skipPop = false;
@@ -210,7 +214,6 @@ function leaveRemote() {
     try { history.back(); } catch { /* private mode */ } // back to the connect entry
   }
   releaseWakeLock();
-  session = null;
   remote?.setStream(null);
   remote?.detach();
   remote = null;
