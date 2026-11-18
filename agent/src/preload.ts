@@ -25,6 +25,8 @@ const invokeChannels = [
   "turn:auto-setup",
   "turn:auto-cancel",
   "turn:renew",
+  "cursor:hide",
+  "cursor:restore",
   "shell:open-external",
   "win:minimize",
   "win:close",

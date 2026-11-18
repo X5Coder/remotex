@@ -225,18 +225,7 @@ export class Session implements CommandSink {
 
     this.fast.onMessage((data, ctx) => {
       if (ctx.peerId !== this.peerId) return;
-      const bytes = data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer);
-      const msg = decodeFast(bytes);
-      if (!msg) return;
-      // pong: echo the exact 7 bytes so the agent can measure RTT
-      if (msg.kind === "ping" && isPing(bytes)) { void this.fast?.send(bytes).catch(() => {}); return; }
-      if (msg.kind === "cur") {
-        if (!this.tracker.accept(msg.seq)) return; // drop stale cursor packets (fast line)
-        this.curLine1++;
-        if (this.curLine1 === 1) console.log("[session] cursor line1 alive (binary fast channel)");
-        this.lastCurAt = Date.now();
-        this.onCur?.(msg.x, msg.y);
-      }
+      this.handleFastFrame(data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer));
     });
 
     this.ctl.onMessage((raw, ctx) => {
@@ -253,6 +242,7 @@ export class Session implements CommandSink {
       if (this.peerId && this.peerId !== peerId) return; // seat already taken â€” refuse silently
       this.peerId = peerId;
       window.clearTimeout(this.connectTimer ?? undefined);
+      this.openFastLine(peerId);
       cb.onPhase("connected");
       // 5-hour session cap: auto-disconnect — the user can reconnect with the same password
       window.clearTimeout(this.sessionLimitTimer ?? undefined);
@@ -396,6 +386,7 @@ export class Session implements CommandSink {
   }
 
   async close() {
+    this.closeFastLine();
     const room = this.room;
     this.room = null;
     if (room) {
@@ -444,14 +435,67 @@ export class Session implements CommandSink {
     this.recovering = false;
   }
 
+  /** Shared decoder for both fast paths (trystero reliable + negotiated unreliable). */
+  private handleFastFrame(bytes: Uint8Array) {
+    const msg = decodeFast(bytes);
+    if (!msg) return;
+    // pong: echo the exact 7 bytes so the agent can measure RTT
+    if (msg.kind === "ping" && isPing(bytes)) { void this.fast?.send(bytes).catch(() => {}); return; }
+    if (msg.kind === "cur") {
+      if (!this.tracker.accept(msg.seq)) return; // drop stale cursor packets (already delivered on the other line)
+      this.curLine1++;
+      if (this.curLine1 === 1) console.log("[session] cursor fast line alive (unreliable/reliable link)");
+      this.lastCurAt = Date.now();
+      this.onCur?.(msg.x, msg.y);
+    }
+  }
+
+  private fastline: RTCDataChannel | null = null;
+
+  /** Unreliable negotiated channel (id 2) — move/scroll/cur never stall behind retransmits. */
+  private openFastLine(peerId: string) {
+    this.closeFastLine();
+    try {
+      const pc = this.room?.getPeers?.()?.[peerId]?.connection as RTCPeerConnection | undefined;
+      if (!pc) { console.warn("[fastline] no pc yet — staying on the trystero channel"); return; }
+      const dc = pc.createDataChannel("fastline", { negotiated: true, id: 2, ordered: false, maxRetransmits: 0 });
+      dc.binaryType = "arraybuffer";
+      dc.onopen = () => console.log("[fastline] unreliable channel open (id 2)");
+      dc.onmessage = (ev) => {
+        const bytes = ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : new Uint8Array(ev.data as ArrayBuffer);
+        this.handleFastFrame(bytes);
+      };
+      dc.onclose = () => { if (this.fastline === dc) this.fastline = null; };
+      this.fastline = dc;
+    } catch (err) {
+      console.warn("[fastline] open failed — staying on the trystero channel:", err);
+      this.fastline = null;
+    }
+  }
+
+  private closeFastLine() {
+    const dc = this.fastline;
+    this.fastline = null;
+    try { dc?.close(); } catch { /* already gone */ }
+  }
+
+  /** Send on BOTH lines when fastline is open (shared seq; the agent dedups). */
+  private fastSend(frame: Uint8Array) {
+    const dc = this.fastline;
+    if (dc && dc.readyState === "open") {
+      try { dc.send(new Uint8Array(frame).buffer); } catch { /* drop — latest position still wins */ }
+    }
+    this.fast?.send(frame).catch(() => {});
+  }
+
   /* ---------- CommandSink (remote.ts calls these) ---------- */
 
   move(x: number, y: number) {
-    this.fast?.send(encodeFast({ kind: "move", seq: this.seq.next(), x, y })).catch(() => {});
+    this.fastSend(encodeFast({ kind: "move", seq: this.seq.next(), x, y }));
   }
 
   scroll(dx: number, dy: number) {
-    this.fast?.send(encodeFast({ kind: "scroll", seq: this.seq.next(), dx, dy })).catch(() => {});
+    this.fastSend(encodeFast({ kind: "scroll", seq: this.seq.next(), dx, dy }));
   }
 
   pointer(kind: "down" | "up" | "click" | "dblclick", button: MouseButton, x: number, y: number) {

@@ -82,6 +82,38 @@ export function ensureHostCursorVisible(): void {
   SetSystemCursor(loadCurrentArrow(), OCR_NORMAL); // one retry with a fresh load
 }
 
+/**
+ * Hide the host arrow system-wide while a remote session is active.
+ * The web client draws the ONLY cursor (its overlay follows the local pointer 1:1) —
+ * a host arrow baked into the capture just fights it and makes both flicker.
+ * Uses CreateCursor with a fully-transparent (AND=0xFF) plane so any app keeps
+ * working; restore with ensureHostCursorVisible() at peer-leave/quit.
+ */
+export function hideHostCursor(): boolean {
+  init();
+  if (!user32) return false;
+  try {
+    const CreateCursor = user32.func("CreateCursor", "uintptr", [
+      "uintptr", // hInst (NULL)
+      "int32",   // xHotSpot
+      "int32",   // yHotSpot
+      "int32",   // nWidth
+      "int32",   // nHeight
+      "void*",   // pvANDPlane
+      "void*",   // pvXORPlane
+    ]);
+    const andPlane = Buffer.alloc(32 * 32 / 8, 0xff); // AND mask 1 everywhere = fully transparent
+    const xorPlane = Buffer.alloc(32 * 32 / 8, 0x00);
+    const h = CreateCursor(0, 0, 0, 32, 32, andPlane, xorPlane) as unknown as number;
+    if (!h) return false;
+    const SetSystemCursor = user32.func("SetSystemCursor", "int32", ["uintptr", "uint32"]);
+    return SetSystemCursor(h, OCR_NORMAL) !== 0;
+  } catch (err) {
+    console.error("[cursor] hide failed:", err instanceof Error ? err.message : String(err));
+    return false;
+  }
+}
+
 /** Diagnostics — null when the Win32 path is available. */
 export function hostCursorError(): string | null {
   init();

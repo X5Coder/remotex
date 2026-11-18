@@ -354,6 +354,29 @@ function registerIpc() {
 
   ipcMain.handle("session:stop", () => stopSession());
 
+  /** hide/restore the host arrow while a client is connected — the client overlay is the only cursor */
+  ipcMain.handle("cursor:hide", () => {
+    try {
+      const { hideHostCursor } = require("./cursor-visibility") as typeof import("./cursor-visibility");
+      const ok = hideHostCursor();
+      console.log(ok ? "[cursor] hidden for the session" : "[cursor] hide unavailable — keeping host arrow (video may double-draw)");
+      return { ok };
+    } catch (err) {
+      console.error("[cursor] hide failed:", err instanceof Error ? err.message : String(err));
+      return { ok: false as const };
+    }
+  });
+  ipcMain.handle("cursor:restore", () => {
+    try {
+      const { ensureHostCursorVisible } = require("./cursor-visibility") as typeof import("./cursor-visibility");
+      ensureHostCursorVisible();
+      console.log("[cursor] restored");
+      return { ok: true as const };
+    } catch {
+      return { ok: false as const };
+    }
+  });
+
   ipcMain.handle("screen:info", () => {
     const displays = screen.getAllDisplays().map((d) => ({
       id: String(d.id),

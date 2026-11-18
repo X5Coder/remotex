@@ -30,6 +30,7 @@ import {
 const APP_ID = "remotex-1";
 const BITRATE_LADDER = [20_000_000, 12_000_000, 8_000_000, 4_000_000];
 const FPS_FLOOR = 45;
+const RELAY_CAP_BITRATE = 2_000_000; // relayed path = tiny free quota — cap media so control packets never queue behind it
 const RENEW_COOLDOWN_MS = 120_000; // mid-session TURN renewal requests at most once per 2 minutes
 const RELAY_URLS = [
   "ws://127.0.0.1:4545", // our own LAN relay â€” single fixed port
@@ -80,6 +81,7 @@ class HiddenAgent {
   private launchRoomId = "";
   private launchPassword = "";
   private lastRenewalAt = 0;
+  private icePath: "host" | "srflx" | "relay" | null = null;
 
   async start() {
     if (this.started) return;
@@ -167,13 +169,7 @@ class HiddenAgent {
 
     this.fast.onMessage((data, ctx) => {
       if (ctx.peerId !== this.peerId) return;
-      const msg = decodeFast(data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer));
-      if (!msg) return;
-      if (msg.kind === "move") {
-        if (!this.tracker.accept(msg.seq)) return;
-        void bridge.invoke("input:inject", { kind: "move", x: msg.x, y: msg.y });
-        return;
-      }
+      this.onFastFrame(data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer));
     });
 
     this.ctl.onMessage((raw, ctx) => {
@@ -206,6 +202,8 @@ class HiddenAgent {
       }
       this.peerId = peerId;
       log("peer joined", peerId);
+      void bridge.invoke("cursor:hide").catch(() => undefined);
+      void this.openFastLine(peerId);
       void room.addStream(stream); // idempotent â€” make sure the seat holder gets it
       void this.tuneSender(peerId);
       void this.sendHello();
@@ -219,6 +217,8 @@ class HiddenAgent {
       log("peer left", peerId);
       this.peerId = null;
       this.stopLoops();
+      void this.closeFastLine();
+      void bridge.invoke("cursor:restore").catch(() => undefined);
       // release any modifiers held for this session
       void bridge.invoke("input:inject", { kind: "reset" });
       void bridge.invoke("agent:notify", { title: "RemoteX", body: "Session ended." });
@@ -259,9 +259,11 @@ class HiddenAgent {
   }
 
   private async tuneSender(peerId: string) {
+    this.icePath = null; // re-detect ICE path after re-arming
+    this.bitrateRung = 0;
     try {
-      const peers = this.room?.getPeers();
-      const pc = peers?.[peerId]?.connection;
+      const pc = this.room?.getPeers?.()?.[peerId]?.connection as RTCPeerConnection | undefined;
+      if (!pc) return;
       const sender = pc?.getSenders().find((s) => s.track?.kind === "video");
       if (!sender) return;
       this.sender = sender;
@@ -289,6 +291,66 @@ class HiddenAgent {
     } catch (err) {
       console.warn("[hidden] setParameters failed:", err);
     }
+  }
+
+  /** Shared decoder for both fast paths (trystero reliable + negotiated unreliable). */
+  private onFastFrame(raw: Uint8Array) {
+    const msg = decodeFast(raw);
+    if (!msg) return;
+    if (msg.kind === "move") {
+      if (!this.tracker.accept(msg.seq)) return;
+      void bridge.invoke("input:inject", { kind: "move", x: msg.x, y: msg.y });
+      return;
+    }
+  }
+
+  /**
+   * Unreliable negotiated channel (id 2, "fastline") — carries mouse moves and cursor
+   * beacons FIRST-CLASS: drops (not stalls) when lossy; the receiver only needs the
+   * latest absolute position. Complements the ordered trystero channel, which keeps
+   * the reliable fallback (clicks/keys ride the JSON ctl channel either way).
+   */
+  private fastline: RTCDataChannel | null = null;
+
+  private openFastLine(peerId: string) {
+    void this.closeFastLine();
+    try {
+      const pc = this.room?.getPeers?.()?.[peerId]?.connection as RTCPeerConnection | undefined;
+      if (!pc) {
+        log("[fastline] no pc yet — staying on the trystero channel");
+        return;
+      }
+      const dc = pc.createDataChannel("fastline", { negotiated: true, id: 2, ordered: false, maxRetransmits: 0 });
+      dc.binaryType = "arraybuffer";
+      dc.onopen = () => log("[fastline] unreliable channel open (id 2) — move/cur traffic rides it");
+      dc.onmessage = (ev) => {
+        const data = ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : new Uint8Array(ev.data as ArrayBuffer);
+        this.onFastFrame(data);
+      };
+      dc.onclose = () => {
+        if (this.fastline === dc) this.fastline = null;
+        log("[fastline] closed");
+      };
+      this.fastline = dc;
+    } catch (err) {
+      console.warn("[fastline] open failed — staying on the trystero channel:", err instanceof Error ? err.message : String(err));
+      this.fastline = null;
+    }
+  }
+
+  private async closeFastLine() {
+    const dc = this.fastline;
+    this.fastline = null;
+    try { dc?.close(); } catch { /* already gone */ }
+  }
+
+  /** Send a fast frame on BOTH lines when fastline is open (tracker dedups at the far end). */
+  private fastSend(frame: Uint8Array) {
+    const dc = this.fastline;
+    if (dc && dc.readyState === "open") {
+      try { dc.send(new Uint8Array(frame).buffer); } catch { /* drop — next frame will arrive */ }
+    }
+    void this.fast?.send(frame).catch(() => {});
   }
 
   /** Send one frame of a clipboard payload (chunked if > 16 KB). Only to the seat holder. */
@@ -348,7 +410,7 @@ class HiddenAgent {
       this.lastCursor = { x: nx, y: ny };
       const seq = this.seq.next();
       // LINE 1 â€” binary fast channel (7 bytes)
-      await this.fast?.send(encodeFast({ kind: "cur", seq, x: nx, y: ny }));
+      this.fastSend(encodeFast({ kind: "cur", seq, x: nx, y: ny }));
       // LINE 2 â€” identical beacon on the reliable JSON ctl channel, SAME seq;
       // the client dedups by seq, so whichever arrives first wins and the other is dropped.
       // If one line stalls, the other compensates.
@@ -388,12 +450,34 @@ class HiddenAgent {
     try {
       const stats = await this.sender.getStats();
       let fps = 0, packetsLost = 0;
+      // selected-pair detection — see below
+      const candidates = new Map<string, unknown>();
+      const pairs: Array<Record<string, unknown>> = [];
       stats.forEach((r) => {
         if (r.type === "outbound-rtp" && r.kind === "video") {
           fps = r.framesPerSecond ?? 0;
           packetsLost = r.packetsLost ?? 0;
         }
+        if (r.type === "candidate-pair") pairs.push(r as unknown as Record<string, unknown>);
+        if (r.type === "remote-candidate" || r.type === "local-candidate") {
+          candidates.set((r as unknown as { id: string }).id, r);
+        }
       });
+      for (const pair of pairs) {
+        const nominated = pair["nominated"] === true || pair["selected"] === true;
+        if (!nominated) continue;
+        const remoteId = String(pair["remoteCandidateId"] ?? "");
+        const remote = candidates.get(remoteId) as { candidateType?: string } | undefined;
+        const t = remote?.candidateType ?? "";
+        const kind = t === "relay" ? "relay" : t === "srflx" || t === "prflx" ? "srflx" : "host";
+        if (kind !== this.icePath) {
+          this.icePath = kind as "host" | "srflx" | "relay";
+          log(`[ice] selected path: ${this.icePath} (remote candidate: ${t || "?"})`);
+          if (this.icePath === "relay") await this.applyRelayCap();
+        }
+        break;
+      }
+      if (this.icePath === "relay") return; // media pinned to the relay budget — leave it pinned
       // packet-loss DELTA over the last second â€” a spike means the link is saturated
       const lossDelta = Math.max(0, packetsLost - this.lastPacketsLost);
       this.lastPacketsLost = packetsLost;
@@ -418,6 +502,21 @@ class HiddenAgent {
         }
       }
     } catch { /* stats not ready */ }
+  }
+
+  /** Pin the sender to the relay budget: 2 Mbps / 30 fps — frees the pipe so
+   *  7-byte control packets never queue behind megabits of video. */
+  private async applyRelayCap() {
+    if (!this.sender) return;
+    try {
+      const params = this.sender.getParameters();
+      if (params.encodings?.[0]) {
+        params.encodings[0].maxBitrate = RELAY_CAP_BITRATE;
+        params.encodings[0].maxFramerate = 30;
+        await this.sender.setParameters(params);
+        log("[ice] relay path — media pinned to 2 Mbps / 30 fps (control channel gets the headroom)");
+      }
+    } catch (err) { console.warn("[ice] relay cap failed:", err); }
   }
 
   private async applyBitrate() {
@@ -535,5 +634,7 @@ window.addEventListener("DOMContentLoaded", () => {
     void reportStatus("Fatal error: " + (err instanceof Error ? err.message : String(err)), "error");
   });
 });
+
+
 
 
