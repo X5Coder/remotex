@@ -1,58 +1,100 @@
-﻿<!DOCTYPE html>
-<html lang="en" dir="ltr">
+<!DOCTYPE html>
+<html lang="en" dir="ltr" data-theme="light">
 <head>
   <meta charset="UTF-8">
-  <!-- Keep the viewport exactly as-is: it stops mobile browsers from zooming and controls the on-screen keyboard -->
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=overlays-content">
-  <meta name="theme-color" content="#eceff3">
+  <meta name="theme-color" content="#ffffff">
   <meta name="description" content="RemoteX - control your computer from any browser. Peer-to-peer, end-to-end encrypted.">
   <title>RemoteX — Your computer, from any browser</title>
-  <!-- PNG first (fallback for older browsers), SVG second (preferred by modern browsers) -->
   <link rel="icon" type="image/png" href="./icon.png" sizes="512x512">
   <link rel="icon" type="image/svg+xml" href="./icon.svg">
   <link rel="apple-touch-icon" href="./icon.png">
   <link rel="stylesheet" href="./src/style.css">
+  <script>(function(){try{var t=localStorage.getItem('remotex.theme');if(t==='dark')document.documentElement.dataset.theme='dark';if(localStorage.getItem('remotex.hideArrow')==='1')document.documentElement.classList.add('hide-arrow');}catch(e){}})();</script>
 </head>
 <body>
 
-<!-- ============ Connect screen: logo, what this is, two numbers, connect ============ -->
+<!-- ============ Connect screen ============ -->
 <div class="connectScreen" id="connectScreen">
-  <form class="connectCard" id="connectForm" autocomplete="on">
 
-    <div class="brand">
-      <img class="logo" src="./icon.png" width="72" height="72" alt="RemoteX">
+  <!-- toolbar: connect page only -->
+  <header class="toolbar" id="toolbar">
+    <a class="brand" href="https://github.com/X5Coder/remotex" target="_blank" rel="noopener noreferrer" aria-label="RemoteX on GitHub">
+      <img class="brandMark" src="./icon.png" width="26" height="26" alt="">
+      <span class="brandName">RemoteX</span>
+    </a>
+    <button class="iconBtn" id="settingsBtn" aria-label="Settings" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+  </header>
+
+  <form class="hero" id="connectForm" autocomplete="on" novalidate>
+    <div class="heroText">
       <h1 class="wordmark">RemoteX</h1>
       <p class="tagline">Your computer, from any browser.</p>
     </div>
 
-    <div class="howto" aria-hidden="false">
-      <p class="howto-line"><span class="howto-num">1</span>Open <b>RemoteX</b> on the computer you want to control</p>
-      <p class="howto-line"><span class="howto-num">2</span>Type the <b>Device ID</b> and <b>Password</b> it shows you here</p>
-      <p class="howto-line"><span class="howto-num">3</span>You're in control — move, click, type, scroll</p>
+    <div class="steps" aria-hidden="true">
+      <div class="step"><span class="stepNum">1</span><span class="stepTxt">Open RemoteX on the computer</span></div>
+      <div class="step"><span class="stepNum">2</span><span class="stepTxt">Type its <b>Device ID</b> &amp; <b>Password</b></span></div>
+      <div class="step"><span class="stepNum">3</span><span class="stepTxt">You're in control</span></div>
     </div>
 
-    <div class="field">
-      <label for="roomId">Device ID</label>
-      <input id="roomId" name="roomId" type="text" inputmode="numeric" autocapitalize="off" autocorrect="off" spellcheck="false"
-        placeholder="012345" autocomplete="off" maxlength="6" class="pwCaps" required>
+    <div class="fields">
+      <div class="field">
+        <label for="roomId">Device ID</label>
+        <input id="roomId" name="roomId" type="text" inputmode="numeric" autocapitalize="off" autocorrect="off" spellcheck="false"
+          placeholder="012345" autocomplete="off" maxlength="6" required>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="text" autocapitalize="characters" autocorrect="off" spellcheck="false"
+          placeholder="PASSWORD" autocomplete="off" maxlength="6" required>
+      </div>
+      <button class="connectBtn" id="connectBtn" type="submit" disabled><span class="spin" aria-hidden="true"></span><span class="connectLabel">Connect</span></button>
     </div>
-    <div class="field">
-      <label for="password">Password</label>
-      <input id="password" name="password" type="text" class="pwCaps" autocapitalize="characters" autocorrect="off" spellcheck="false"
-        placeholder="PASSWORD" autocomplete="off" maxlength="6" required>
+
+    <p class="trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>End-to-end encrypted — only you can see the screen.</p>
+
+    <div class="footRow">
+      <a class="ghLink" href="https://github.com/X5Coder/remotex" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        Free &amp; open source
+      </a>
+      <span class="verTag">RemoteX v6.2.6</span>
     </div>
-    <button class="connectBtn" id="connectBtn" type="submit" disabled><span class="spin" aria-hidden="true"></span><span class="connectLabel">Connect</span></button>
-
-    <p class="trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>End-to-end encrypted — only you can see this screen.</p>
-
-    <a class="ghLink" href="https://github.com/X5Coder/remotex" target="_blank" rel="noopener noreferrer">
-      <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
-      Free &amp; open source on GitHub
-    </a>
-
-    <p class="verTag">RemoteX v6.2.5</p>
-
   </form>
+
+  <!-- settings dialog -->
+  <div class="overlay" id="settingsOverlay" hidden>
+    <div class="dialog" id="settingsDialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="dialogHead">
+        <h2 class="dialogTitle" id="settingsTitle">Settings</h2>
+        <button class="iconBtn small" id="settingsClose" aria-label="Close settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="dialogBody">
+        <div class="settingRow">
+          <div class="settingInfo">
+            <span class="settingName">Appearance</span>
+            <span class="settingHint">Light by default — dark for night work</span>
+          </div>
+          <div class="segmented" id="themeSeg" role="group" aria-label="Theme">
+            <button class="segBtn isOn" data-theme-btn="light" type="button">Light</button>
+            <button class="segBtn" data-theme-btn="dark" type="button">Dark</button>
+          </div>
+        </div>
+        <div class="settingRow">
+          <div class="settingInfo">
+            <span class="settingName">Arrow cursor</span>
+            <span class="settingHint">Hide the on-screen arrow (site only)</span>
+          </div>
+          <button class="switch" id="arrowSwitch" role="switch" aria-checked="true" aria-label="Toggle arrow cursor"><span class="knob"></span></button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ============ Remote surface (hidden until connected) ============ -->
