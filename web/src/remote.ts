@@ -1,11 +1,11 @@
-/**
- * RemoteX — remote surface (touchpad / mouse / tablet modes).
+﻿/**
+ * RemoteX â€” remote surface (touchpad / mouse / tablet modes).
  *
  * Ported from the v1 prototype (docs/prototype-index.html) with fixes per master.md:
  *   - tap = IMMEDIATE click (no 240 ms tap delay); OS merges double-clicks
  *   - touch sends ABSOLUTE normalized moves, coalesced per rAF (never dx/dy deltas)
  *   - every pointer command carries x,y (agent moves first, then presses)
- *   - the decorative local context menu was removed — the real menu appears on the remote machine
+ *   - the decorative local context menu was removed â€” the real menu appears on the remote machine
  *   - drag works in portrait focus mode too; long-press (550 ms) toggles expand/collapse
  *   - keys carry the PHYSICAL code (KeyboardEvent.code) + down/up edges
  */
@@ -72,7 +72,7 @@ export class RemoteSurface {
   private H = 1;
   private running = false;
 
-  // synced=true → host cursor is the authority (snap exactly); false → local drag prediction (lerp)
+  // synced=true â†’ host cursor is the authority (snap exactly); false â†’ local drag prediction (lerp)
   private S = { down: false, fx: 0, fy: 0, a: 0, cx: 0.5, cy: 0.5, tx: 0.5, ty: 0.5, synced: true, htx: 0.5, hty: 0.5 };
   private lastPointerType: 'mouse' | 'touch' = 'touch';
   private ring: { x: number; y: number; p: number } | null = null;
@@ -165,7 +165,7 @@ export class RemoteSurface {
     this.holdButton($id("leftBtn") as HTMLButtonElement, "left");
     this.holdButton($id("rightBtn") as HTMLButtonElement, "right");
     this.bindKb($id("kbBtn") as HTMLButtonElement);
-    $id("exitBtn").addEventListener("click", () => { if (this.kbOpen) this.closeKb(); if (this.full) this.closeFull(); });
+    $id("exitBtn").addEventListener("click", () => { if (this.kbOpen) this.closeKb(); if (this.land) void this.rotateFull(); else if (this.full) this.closeFull(); });
     $id("backdrop").addEventListener("click", () => this.closeFull());
 
     // keyboard input for phones/tablets
@@ -185,18 +185,18 @@ export class RemoteSurface {
     // toast
     this.toastEl.addEventListener("click", this.onToastClick);
 
-    // F5/F12 passthrough etc. — allow browser escape hatches
+    // F5/F12 passthrough etc. â€” allow browser escape hatches
     this.fit();
   }
 
   /**
    * Auto-activate the fullscreen (land) mode right after a successful connect on touch devices.
-   * The site itself enters fullscreen — no gesture needed. Exits only via the on-screen X button.
+   * The site itself enters fullscreen â€” no gesture needed. Exits only via the on-screen X button.
    */
   autoEnterFullscreen() {
     if (this.mode !== "touch" || this.full) return;
     this.openFull();
-    // let the focus FLIP settle (340ms), then widen into land fullscreen — same battle-tested path X uses in reverse
+    // let the focus FLIP settle (340ms), then widen into land fullscreen â€” same battle-tested path X uses in reverse
     window.setTimeout(() => { if (!this.land) void this.rotateFull(); }, 620);
   }
 
@@ -234,7 +234,7 @@ export class RemoteSurface {
 
   setStaleHandler(cb: (() => void) | null) { this.staleCb = cb; }
 
-  /** Public: used by the session's recovery path — true when frames are flowing right now. */
+  /** Public: used by the session's recovery path â€” true when frames are flowing right now. */
   framesFlowing() { return performance.now() - this.lastFrameAt < 8000; }
 
   private startFrameWatch() {
@@ -246,14 +246,14 @@ export class RemoteSurface {
     if (typeof video.requestVideoFrameCallback === "function") {
       const tick = () => {
         this.lastFrameAt = performance.now();
-        try { video.requestVideoFrameCallback!(tick); } catch { /* stream replaced — onStream re-arms */ }
+        try { video.requestVideoFrameCallback!(tick); } catch { /* stream replaced â€” onStream re-arms */ }
       };
       try { video.requestVideoFrameCallback(tick); } catch { /* fall back to the interval check */ }
     }
     window.clearInterval(this.staleTimer);
     this.staleTimer = window.setInterval(() => {
       if (!this.staleCb) return;
-      if (document.visibilityState !== "visible") return; // suspended by the OS — not a fault
+      if (document.visibilityState !== "visible") return; // suspended by the OS â€” not a fault
       if (typeof this.video.requestVideoFrameCallback !== "function") {
         // fallback freshness probe: currentTime only advances when decoding real frames
         if (this.video.currentTime !== this.lastCt) { this.lastFrameAt = performance.now(); this.lastCt = this.video.currentTime; }
@@ -329,7 +329,7 @@ export class RemoteSurface {
     if (!this.running) { this.running = true; requestAnimationFrame(this.tick); }
   }
 
-  /** rect of the video content inside the (possibly letterboxed) screen element — in FULLSCREEN the 16:9 video is letterboxed top/bottom */
+  /** rect of the video content inside the (possibly letterboxed) screen element â€” in FULLSCREEN the 16:9 video is letterboxed top/bottom */
   private contentRect() {
     const W = this.SW, H = this.SH, ar = this.ar;
     let cw = W, ch = cw / ar;
@@ -339,7 +339,7 @@ export class RemoteSurface {
 
   private tick = () => {
     if (this.S.synced) {
-      // host is authoritative — snap exactly, zero lag / zero drift
+      // host is authoritative â€” snap exactly, zero lag / zero drift
       this.S.cx = this.S.tx;
       this.S.cy = this.S.ty;
     } else {
@@ -396,7 +396,7 @@ export class RemoteSurface {
 
   private onTouchDown = (e: PointerEvent) => {
     if (this.mode !== "touch" || e.pointerType === "mouse" || this.pid !== null || this.anim || this.busy) return;
-    if ((e.target as HTMLElement).closest(".rail, #kbInput")) return;
+    if ((e.target as HTMLElement).closest(".tray, .foldTab, #kbInput")) return;
     e.preventDefault();
     this.pid = e.pointerId;
     this.onScreen = !!(e.target as HTMLElement).closest("#screen");
@@ -416,7 +416,7 @@ export class RemoteSurface {
     const rx = e.clientX - this.lx, ry = e.clientY - this.ly;
     this.lx = e.clientX; this.ly = e.clientY;
     this.moved += Math.abs(rx) + Math.abs(ry);
-    const dx = rx, dy = ry; // land mode no longer rotates the video — same 1:1 mapping everywhere
+    const dx = rx, dy = ry; // land mode no longer rotates the video â€” same 1:1 mapping everywhere
     this.S.fx += (e.clientX - this.S.fx) * 0.3;
     this.S.fy += (e.clientY - this.S.fy) * 0.3;
     const sp = Math.hypot(rx, ry);
@@ -436,7 +436,7 @@ export class RemoteSurface {
     if (this.mvPending) { this.sink.move(+this.mvPending.x.toFixed(4), +this.mvPending.y.toFixed(4)); this.mvPending = null; }
   };
 
-  /* ---------- video double-tap = focus cycle; taps on empty area = click / double-click (Windows folds) — NO long-press ---------- */
+  /* ---------- video double-tap = focus cycle; taps on empty area = click / double-click (Windows folds) â€” NO long-press ---------- */
 
   /** video double-tap cycle: small -> focus (portrait) -> landscape (fullscreen) -> small */
   private expandCycle = () => {
@@ -540,7 +540,7 @@ export class RemoteSurface {
     this.lastPointerType = "mouse";
     const p = this.norm(e);
     this.mvPending = p;
-    // the OS mouse IS the remote cursor here — map 1:1 and snap the overlay instantly (no prediction lag)
+    // the OS mouse IS the remote cursor here â€” map 1:1 and snap the overlay instantly (no prediction lag)
     this.S.synced = true;
     this.S.tx = p.x;
     this.S.ty = p.y;
@@ -698,7 +698,7 @@ export class RemoteSurface {
   handleRemoteClipboard = async (text: string) => {
     this.lastRemoteClip = text; // keep as offline-paste fallback for insecure origins
     const ok = await this.writeClip(text);
-    const preview = text.length > 48 ? text.slice(0, 48) + "…" : text;
+    const preview = text.length > 48 ? text.slice(0, 48) + "â€¦" : text;
     if (ok) this.toast(`Copied: ${preview}`);
     else this.toast("Tap to copy to device clipboard", () =>
       void this.writeClip(this.lastRemoteClip!).then((k) => this.toast(k ? "Copied to device clipboard" : "Copy failed"))
@@ -821,7 +821,7 @@ export class RemoteSurface {
       this.prev = "";
       return;
     }
-    // Backspace (plain or word-delete) is delivered through the input-diff — never double it up here
+    // Backspace (plain or word-delete) is delivered through the input-diff â€” never double it up here
     if (e.code === "Backspace") return;
     // Ctrl/Cmd+V without Alt: let the native paste event fire so we can mirror the phone clipboard
     const cmd = e.ctrlKey || e.metaKey || e.altKey;
@@ -831,8 +831,8 @@ export class RemoteSurface {
       "Tab", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
       "Home", "End", "Delete", "PageUp", "PageDown", "Insert",
     ]);
-    // pure functional keys (Tab/arrows/…) are forwarded with preventDefault, so the input never
-    // mutates and the diff stays silent — the host is the single editor of those keys.
+    // pure functional keys (Tab/arrows/â€¦) are forwarded with preventDefault, so the input never
+    // mutates and the diff stays silent â€” the host is the single editor of those keys.
     // Ctrl/Alt/Meta + single letter/digit shortcuts go straight to the host.
     let forward = isFKey || FUNCTIONAL.has(e.code);
     if (cmd && /^[a-z0-9]$/.test(k) && k !== "v") forward = true;
@@ -925,11 +925,11 @@ export class RemoteSurface {
         try { (navigator as Navigator & { keyboard?: { lock?: (k: string[]) => Promise<void> } }).keyboard?.lock?.(["Escape"]); } catch { /* optional */ }
         await wait(150);
       }
-    } catch { /* browser refused — landscape via CSS rotate still works */ }
+    } catch { /* browser refused â€” landscape via CSS rotate still works */ }
   }
 
   private async exitBrowserFs() {
-    if (this.mode === "touch") return; // touch never enters browser fullscreen — nothing to exit
+    if (this.mode === "touch") return; // touch never enters browser fullscreen â€” nothing to exit
     try {
       if (!this.inFs()) return;
       const f = document.exitFullscreen || (document as Document & { webkitExitFullscreen?: () => Promise<void> }).webkitExitFullscreen;
@@ -959,10 +959,10 @@ export class RemoteSurface {
     document.body.classList.remove("land");
     this.screenEl.classList.remove("land");
     this.backdrop.classList.remove("show");
-    // shade starts at its CURRENT opacity (0 in land, 1 in focus) — never resurrects a hidden shade
+    // shade starts at its CURRENT opacity (0 in land, 1 in focus) â€” never resurrects a hidden shade
     const so = +(this.shade.style.opacity || 0);
     // REAL FLIP: park the element at its FINAL (small) rect first, then animate from the OLD visual
-    // state back to identity — the screen never jumps, it glides home (no layout snap, no "drop")
+    // state back to identity â€” the screen never jumps, it glides home (no layout snap, no "drop")
     const t = { left: wrap.left, top: wrap.top, w: wrap.width, h: wrap.height, rot: 0 };
     const L = this.stateOfT(t);
     this.place(t);
@@ -1006,12 +1006,13 @@ export class RemoteSurface {
     this.flip(L, from, undefined, undefined, 1, 0);
   }
 
-  // fullscreenchange → if we left fullscreen while in landscape, rotate back to portrait focus
+  // fullscreenchange â†’ if we left fullscreen while in landscape, rotate back to portrait focus
   onFullscreenChange = () => {
-    if (this.mode === "touch") return; // touch never exits via browser FS gestures — only the X button closes land
+    if (this.mode === "touch") return; // touch never exits via browser FS gestures â€” only the X button closes land
     if (!this.inFs() && this.land && !this.busy && !this.anim) void this.rotateFull();
   };
 }
+
 
 
 

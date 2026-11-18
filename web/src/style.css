@@ -23,25 +23,6 @@
   --r-sm:12px;
   color-scheme:light;
 }
-[data-theme="dark"]{
-  --bg:#000000;
-  --bg-soft:#101010;
-  --card:#141414;
-  --ink:#f2f2f2;
-  --muted:#8f8f8f;
-  --line:#242424;
-  --accent:#f2f2f2;
-  --accent-ink:#d4d4d4;
-  --accent-soft:rgba(255,255,255,.08);
-  --ok:#8ee6a8;
-  --err:#ff9c9c;
-  --shadow:0 24px 48px -24px rgba(0,0,0,.8);
-  color-scheme:dark;
-}
-[data-theme="dark"] .connectBtn{color:#000}
-[data-theme="dark"] .stepNum{background:#f2f2f2;color:#000}
-[data-theme="dark"] .segBtn.isOn{box-shadow:0 1px 4px rgba(0,0,0,.6)}
-[data-theme="dark"] body{background-image:radial-gradient(120% 80% at 50% -20%, rgba(255,255,255,.04), transparent 55%)}
 
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 [hidden]{display:none !important}
@@ -55,15 +36,6 @@ body{
   overflow:hidden;
   transition:background-color .25s ease,color .25s ease;
 }
-
-.iconBtn{width:38px;height:38px;border:1px solid transparent;border-radius:12px;background:transparent;color:var(--muted);
-  display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s,color .15s,transform .15s}
-.iconBtn:hover{background:var(--accent-soft);color:var(--accent)}
-.iconBtn:active{transform:scale(.92)}
-.iconBtn.small{width:34px;height:34px}
-.iconBtn svg{width:19px;height:19px}
-.iconBtn.small svg{width:16px;height:16px}
-.iconBtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* ============ connect screen ============ */
 .connectScreen{height:100%;display:flex;flex-direction:column;overflow-y:auto;background:var(--bg);background-image:radial-gradient(120% 90% at 50% -30%, var(--accent-soft), transparent 55%)}
@@ -117,51 +89,6 @@ body{
   .wordmark{letter-spacing:-2px}
 }
 
-/* ============ settings dialog ============ */
-.overlay{
-  position:fixed;inset:0;z-index:60;background:rgba(15,17,21,.45);
-  display:flex;align-items:flex-end;justify-content:center;
-  animation:overlayIn .22s ease both;
-}
-@keyframes overlayIn{from{opacity:0}to{opacity:1}}
-.overlay.closing{animation:overlayOut .2s ease both}
-@keyframes overlayOut{from{opacity:1}to{opacity:0}}
-.dialog{
-  width:100%;max-width:480px;background:var(--card);border:1px solid var(--line);
-  border-radius:22px 22px 0 0;padding:16px 18px calc(18px + env(safe-area-inset-bottom));
-  box-shadow:var(--shadow);animation:dialogIn .3s cubic-bezier(.32,.72,.25,1) both;
-}
-@keyframes dialogIn{from{opacity:0;transform:translateY(48px)}to{opacity:1;transform:none}}
-.overlay.closing .dialog{animation:dialogOut .22s ease both}
-@keyframes dialogOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(32px)}}
-@media (min-width:520px){
-  .overlay{align-items:center;padding:24px}
-  .dialog{border-radius:22px;animation:dialogPop .28s cubic-bezier(.32,.72,.25,1) both}
-  @keyframes dialogPop{from{opacity:0;transform:scale(.92) translateY(10px)}to{opacity:1;transform:none}}
-}
-.dialogHead{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
-.dialogTitle{font-size:17px;font-weight:750;letter-spacing:-.2px}
-.dialogBody{display:flex;flex-direction:column}
-.settingRow{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 2px;border-bottom:1px solid var(--line)}
-.settingRow:last-child{border-bottom:0}
-.settingInfo{display:flex;flex-direction:column;gap:2px;min-width:0}
-.settingName{font-size:13.5px;font-weight:700}
-.settingHint{font-size:11px;color:var(--muted);line-height:1.35}
-
-.segmented{display:flex;background:var(--bg-soft);border:1px solid var(--line);border-radius:12px;padding:3px;gap:2px}
-.segBtn{border:0;background:transparent;color:var(--muted);height:34px;min-width:56px;padding:0 14px;border-radius:9px;
-  font:inherit;font-size:12px;font-weight:700;cursor:pointer;transition:background .18s,color .18s,box-shadow .18s}
-.segBtn.isOn{background:var(--card);color:var(--accent);box-shadow:0 1px 4px rgba(15,17,21,.12)}
-
-.switch{position:relative;width:50px;height:30px;border:0;border-radius:999px;background:#d4d4d8;cursor:pointer;transition:background .25s cubic-bezier(.4,0,.2,1), box-shadow .25s;flex:none;box-shadow:inset 0 1px 3px rgba(15,17,21,.18)}
-.switch .knob{position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:linear-gradient(180deg,#ffffff 0%,#f3f4f6 100%);box-shadow:0 2px 5px rgba(15,17,21,.3), inset 0 -1px 1px rgba(15,17,21,.08);transition:transform .28s cubic-bezier(.34,1.56,.64,1)}
-.switch:hover .knob{box-shadow:0 3px 7px rgba(15,17,21,.35), inset 0 -1px 1px rgba(15,17,21,.08)}
-.switch[aria-checked="true"]{background:var(--accent);box-shadow:inset 0 1px 3px rgba(0,0,0,.25)}
-.switch[aria-checked="true"] .knob{transform:translateX(20px)}
-.switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-[data-theme="dark"] .switch{background:#2a2a2a}
-[data-theme="dark"] .switch .knob{background:linear-gradient(180deg,#f2f2f2 0%,#d4d4d4 100%)}
-
 /* ============ remote surface ============ */
 .app{position:fixed;left:0;right:0;top:0;height:var(--h,100vh);display:flex;flex-direction:column;
   background:#000;color:#e5e7eb;overflow:hidden}
@@ -178,48 +105,39 @@ body{
 .placeholder svg{width:40px;height:40px;opacity:.5}
 .screen.live .placeholder{display:none}
 #cursor{position:absolute;left:0;top:0;width:19px;height:21px;z-index:3;pointer-events:none;will-change:transform;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.45))}
-body.hide-arrow #cursor{display:none}
-html.hide-arrow #cursor{display:none}
 
-/* side rail â€” always visible, tab expands it with a pop animation */
-.rail{
-  position:fixed;right:10px;top:50%;z-index:56;width:46px;
-  display:flex;flex-direction:column;gap:5px;padding:7px 6px;border-radius:18px;
-  background:rgba(16,18,23,.55);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
-  border:1px solid rgba(255,255,255,.16);box-shadow:0 14px 36px rgba(0,0,0,.4);
-  transform:translateY(-50%);
-  transition:width .32s cubic-bezier(.34,1.45,.44,1), background .3s;
-  overflow:visible;
-}
-body.menu-open .rail{width:186px;background:rgba(16,18,23,.78)}
-.railBtn{
-  display:flex;align-items:center;gap:11px;width:100%;height:40px;border:0;border-radius:12px;
-  background:transparent;color:rgba(255,255,255,.92);cursor:pointer;padding:0 8px;
-  transition:background .15s, transform .15s;touch-action:manipulation;position:relative;
-}
-.railBtn svg{width:19px;height:19px;flex:none}
-.railBtn:hover{background:rgba(255,255,255,.13)}
-.railBtn:active{transform:scale(.93)}
-.railBtn.down{background:rgba(255,255,255,.28)}
-.railBtn.kb.on{background:rgba(255,255,255,.24);color:#fff;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.55)}
-.railBtn.danger:hover{background:#b30000}
-.railBtn:focus-visible{outline:2px solid #fff;outline-offset:2px}
-.railLabel{font-size:11.5px;font-weight:650;letter-spacing:.2px;white-space:nowrap;
-  opacity:0;transform:translateX(8px);transition:opacity .18s ease .06s, transform .26s cubic-bezier(.34,1.45,.44,1) .06s;pointer-events:none}
-body.menu-open .railLabel{opacity:1;transform:none}
-.railSep{display:none;width:100%;height:1px;background:rgba(255,255,255,.16);margin:2px 0}
-body.menu-open .railSep{display:block}
+
+/* top-right pull-tab + sliding icon tray */
 .foldTab{
-  position:absolute;left:-16px;top:50%;transform:translateY(-50%);
-  width:22px;height:76px;border:1px solid rgba(255,255,255,.2);border-right:0;border-radius:12px 0 0 12px;
-  background:rgba(16,18,23,.78);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
-  color:rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;cursor:pointer;
-  transition:background .2s, color .2s;
+  position:fixed;top:calc(10px + env(safe-area-inset-top));right:0;z-index:62;
+  width:26px;height:88px;border:1px solid rgba(255,255,255,.18);border-right:0;border-radius:12px 0 0 12px;
+  background:rgba(16,18,23,.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  color:rgba(255,255,255,.85);display:flex;align-items:center;justify-content:center;cursor:pointer;
+  transition:background .2s, color .2s, width .2s;
 }
-.foldTab:hover{background:rgba(255,255,255,.16);color:#fff}
+.foldTab:hover{background:rgba(255,255,255,.18);color:#fff;width:30px}
 .foldTab:focus-visible{outline:2px solid #fff;outline-offset:2px}
-.foldTab svg{width:12px;height:12px;transition:transform .3s cubic-bezier(.34,1.45,.44,1)}
+.foldTab svg{width:14px;height:14px;transition:transform .3s cubic-bezier(.34,1.45,.44,1)}
 body.menu-open .foldTab svg{transform:rotate(180deg)}
+.tray{
+  position:fixed;top:calc(10px + env(safe-area-inset-top));z-index:61;
+  display:flex;align-items:center;gap:2px;padding:6px 8px;border-radius:16px;
+  background:rgba(16,18,23,.66);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid rgba(255,255,255,.14);box-shadow:0 14px 34px rgba(0,0,0,.45);
+  right:0;transform:translate(calc(100% + 30px), 0);opacity:0;pointer-events:none;
+  transition:transform .32s cubic-bezier(.32,1.15,.4,1), opacity .25s ease;
+}
+body.menu-open .tray{transform:translate(0, 0);opacity:1;pointer-events:auto}
+.trayBtn{width:44px;height:44px;border:0;border-radius:12px;background:transparent;color:rgba(255,255,255,.92);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s, transform .15s;touch-action:manipulation}
+.trayBtn:hover{background:rgba(255,255,255,.14)}
+.trayBtn:active{transform:scale(.9)}
+.trayBtn.down{background:rgba(255,255,255,.28)}
+.trayBtn svg{width:21px;height:21px}
+.trayBtn.kb.on{background:rgba(255,255,255,.24);color:#fff;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.55)}
+.trayBtn.danger:hover{background:#b30000}
+.trayBtn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.traySep{width:1px;height:24px;background:rgba(255,255,255,.18);margin:0 2px}
 
 /* fullscreen / layout modes (same contract the controller expects) */
 body.focus{background:#000}
@@ -228,7 +146,6 @@ body.land .panel{padding:0;gap:0;border:0;background:none;box-shadow:none;border
 body.land .screen{border:0;border-radius:0}
 body.focus .app{padding:0;justify-content:center}
 body.focus .panel{align-self:center;padding:0;border:0;border-radius:0;background:none;box-shadow:none}
-body.focus .rail{box-shadow:0 0 0 1.5px rgba(255,255,255,.25) inset}
 body.mouse #screen{cursor:none}
 body.focus .screen{border:0;border-radius:0;cursor:default;background:#000}
 body.focus #shade{display:none}
