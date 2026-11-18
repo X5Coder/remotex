@@ -354,29 +354,6 @@ function registerIpc() {
 
   ipcMain.handle("session:stop", () => stopSession());
 
-  /** hide/restore the host arrow while a client is connected — the client overlay is the only cursor */
-  ipcMain.handle("cursor:hide", () => {
-    try {
-      const { hideHostCursor } = require("./cursor-visibility") as typeof import("./cursor-visibility");
-      const ok = hideHostCursor();
-      console.log(ok ? "[cursor] hidden for the session" : "[cursor] hide unavailable — keeping host arrow (video may double-draw)");
-      return { ok };
-    } catch (err) {
-      console.error("[cursor] hide failed:", err instanceof Error ? err.message : String(err));
-      return { ok: false as const };
-    }
-  });
-  ipcMain.handle("cursor:restore", () => {
-    try {
-      const { ensureHostCursorVisible } = require("./cursor-visibility") as typeof import("./cursor-visibility");
-      ensureHostCursorVisible();
-      console.log("[cursor] restored");
-      return { ok: true as const };
-    } catch {
-      return { ok: false as const };
-    }
-  });
-
   ipcMain.handle("screen:info", () => {
     const displays = screen.getAllDisplays().map((d) => ({
       id: String(d.id),
@@ -647,45 +624,6 @@ function registerIpc() {
     return { ok: true as const, via: proof.via };
   });
 
-  /** Mid-session TURN renewal — the hidden capture window calls this when ICE dies.
-   *  Fast path: the current credential still allocates → just re-arm (same password).
-   *  Slow path: relay refused/missing → re-create the credential (headless signup),
-   *  re-register the binding, then let the caller re-arm the room (same password). */
-  ipcMain.handle("turn:renew", async () => {
-    if (renewInFlight) return { ok: false as const, error: "Renewal already in progress" };
-    renewInFlight = true;
-    try {
-      const userData = app.getPath("userData");
-      const turnPath = path.join(userData, "turn.json");
-      try {
-        const j = JSON.parse(fs.readFileSync(turnPath, "utf8")) as { urls?: unknown; username?: unknown; credential?: unknown };
-        const urls = Array.isArray(j?.urls) ? j.urls.filter((u): u is string => typeof u === "string" && u.length > 0) : [];
-        if (urls.length > 0) {
-          const proof = await verifyTurn(urls, String(j.username ?? ""), String(j.credential ?? ""), 2000);
-          if (proof.ok) {
-            console.log("[turn-renew] relay still accepts the credential — re-arming only");
-            return { ok: true as const, renewed: false as const };
-          }
-          console.warn("[turn-renew] relay refused the credential — re-provisioning");
-        }
-      } catch {
-        console.warn("[turn-renew] turn.json unreadable — re-provisioning");
-      }
-      try { fs.renameSync(turnPath, turnPath + ".stale"); } catch { /* already missing */ }
-      const ac = new AbortController();
-      const result = await runAutoTurn(ac.signal, { attempts: 2 });
-      if (result.ok) {
-        console.log(`[turn-renew] credential renewed — relay accepted via ${result.via ?? "TURN"}`);
-        return { ok: true as const, renewed: true as const };
-      }
-      return { ok: false as const, error: "error" in result ? result.error : "Renewal failed" };
-    } catch (err) {
-      return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
-    } finally {
-      renewInFlight = false;
-    }
-  });
-
   /** The wizard may only open the metered console — nothing else. */
   ipcMain.handle("shell:open-external", (_e, url: unknown) => {
     const u = String(url ?? "");
@@ -744,3 +682,4 @@ app.on("will-quit", () => {
 app.on("activate", () => ensureWindow());
 
 app.on("second-instance", () => ensureWindow());
+

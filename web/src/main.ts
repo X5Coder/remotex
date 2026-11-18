@@ -154,9 +154,17 @@ function enterRemote() {
   );
   remote = new RemoteSurface({ sink: session! });
   session!.setStaleFrameProbe(() => !!remote?.framesFlowing());
+  let lastAutoRecover = 0;
   remote.setStaleHandler(() => {
-    toast("Reconnecting…");
-    void session?.silentRecover();
+    // at most ONE auto re-dial per 5 minutes — unthrottled recovery caused the connect/drop churn
+    const now = Date.now();
+    if (now - lastAutoRecover > 5 * 60 * 1000) {
+      lastAutoRecover = now;
+      toast("Reconnecting…");
+      void session?.silentRecover();
+    } else {
+      toast("Video stalled — tap Connect to rejoin.");
+    }
   });
   dockEl.hidden = remote.device !== "tablet";
   session!.setCursorCorrector((x, y) => remote?.setCursor(x, y));

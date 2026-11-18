@@ -31,7 +31,6 @@ const APP_ID = "remotex-1";
 const BITRATE_LADDER = [20_000_000, 12_000_000, 8_000_000, 4_000_000];
 const FPS_FLOOR = 45;
 const RELAY_CAP_BITRATE = 2_000_000; // relayed path = tiny free quota — cap media so control packets never queue behind it
-const RENEW_COOLDOWN_MS = 120_000; // mid-session TURN renewal requests at most once per 2 minutes
 const RELAY_URLS = [
   "ws://127.0.0.1:4545", // our own LAN relay â€” single fixed port
   "wss://nos.lol",
@@ -80,7 +79,6 @@ class HiddenAgent {
   private started = false;
   private launchRoomId = "";
   private launchPassword = "";
-  private lastRenewalAt = 0;
   private icePath: "host" | "srflx" | "relay" | null = null;
 
   async start() {
@@ -202,7 +200,6 @@ class HiddenAgent {
       }
       this.peerId = peerId;
       log("peer joined", peerId);
-      void bridge.invoke("cursor:hide").catch(() => undefined);
       void this.openFastLine(peerId);
       void room.addStream(stream); // idempotent â€” make sure the seat holder gets it
       void this.tuneSender(peerId);
@@ -218,7 +215,6 @@ class HiddenAgent {
       this.peerId = null;
       this.stopLoops();
       void this.closeFastLine();
-      void bridge.invoke("cursor:restore").catch(() => undefined);
       // release any modifiers held for this session
       void bridge.invoke("input:inject", { kind: "reset" });
       void bridge.invoke("agent:notify", { title: "RemoteX", body: "Session ended." });
@@ -427,25 +423,6 @@ class HiddenAgent {
    */
   private async sampleStats() {
     if (!this.peerId) return;
-    // Mid-session relay/ICE death watch — ask the main process to renew TURN without user
-    // action; the client re-joins automatically (same room, same password).
-    try {
-      const pc = this.room?.getPeers?.()?.[this.peerId]?.connection as RTCPeerConnection | undefined;
-      const iceState = pc?.iceConnectionState ?? "";
-      if (iceState === "failed" && Date.now() - this.lastRenewalAt > RENEW_COOLDOWN_MS) {
-        this.lastRenewalAt = Date.now();
-        log("ICE connection failed — requesting a mid-session TURN renewal");
-        const res = (await bridge.invoke("turn:renew")) as { ok?: boolean } | null;
-        if (res?.ok) {
-          void reportStatus("Connection lost — relaying again…", "waiting");
-          await this.rearm(undefined, { graceful: false });
-          return;
-        }
-        log("renewal failed — staying on the current session");
-      }
-    } catch (err) {
-      log("renewal request error:", err instanceof Error ? err.message : String(err));
-    }
     if (!this.sender) return;
     try {
       const stats = await this.sender.getStats();
@@ -634,6 +611,7 @@ window.addEventListener("DOMContentLoaded", () => {
     void reportStatus("Fatal error: " + (err instanceof Error ? err.message : String(err)), "error");
   });
 });
+
 
 
 

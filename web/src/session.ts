@@ -1,8 +1,8 @@
-/**
- * RemoteX â€” WebRTC session (web client side).
+﻿/**
+ * RemoteX Ã¢â‚¬â€ WebRTC session (web client side).
  *
  * Signaling: Trystero (Nostr by default). The password derives the AES-256-GCM
- * signaling key (PBKDF2) â€” the SDP handshake is end-to-end encrypted and public
+ * signaling key (PBKDF2) Ã¢â‚¬â€ the SDP handshake is end-to-end encrypted and public
  * relays never see your screen. After connect, everything is direct P2P.
  *
  * Single session: maxUsers = 2 (agent + you). The first valid peer holds the
@@ -42,11 +42,11 @@ const APP_ID = "remotex-1"; // namespace shared with the agent; change = everyon
 const STORE_KEY = "remotex.turn.v1"; // relay credential persisted by a one-time #turn= setup link
 const CONNECT_TIMEOUT_MS = 12_000;
 const MAX_ATTEMPTS = 3;
-const SESSION_LIMIT_MS = 5 * 60 * 60 * 1000; // 5 hours — then auto-disconnect; reconnect with the same password
+const SESSION_LIMIT_MS = 5 * 60 * 60 * 1000; // 5 hours â€” then auto-disconnect; reconnect with the same password
 // Public Nostr relays verified live from this network (2026-11-15): all accepted
 // Trystero's discovery kinds and completed WebSocket handshakes. relay.damus.io is
 // down for this user (HTTP 520/521) and relay.nos.social refuses Trystero's message
-// kinds — both excluded.
+// kinds â€” both excluded.
 const IS_LAN_HOST = /^(localhost|127\.0\.0\.1|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(window.location.hostname);
 
 /** probe the agent's LAN relay on the single fixed port (4545) */
@@ -115,7 +115,7 @@ export interface SessionCallbacks {
   onPhase(phase: SessionPhase, reason?: string): void;
   onStream(stream: MediaStream): void;
   onHello(hello: HelloMessage): void;
-  /** RTT in ms — UI layer may ignore it (video overlay is gone); kept mandatory for future overlay-free HUD */
+  /** RTT in ms â€” UI layer may ignore it (video overlay is gone); kept mandatory for future overlay-free HUD */
   onRtt(ms: number): void;
   onClipboard(text: string): void;
   /** true when the remote said the version is mismatched (agent asks user to update) */
@@ -147,7 +147,7 @@ export class Session implements CommandSink {
   constructor(private opts: { roomId: string; password: string; cb: SessionCallbacks }) {}
 
   /** TURN relay for THIS device.
-   *  1) one-time setup link from the agent window (#turn=…), persisted in localStorage — the user's own credential, never public;
+   *  1) one-time setup link from the agent window (#turn=â€¦), persisted in localStorage â€” the user's own credential, never public;
    *  2) build-time injection next to index.html (self-hosted deployments);
    *  Falls back to the built-in Open Relay (public static-auth, no account) when absent. */
   private async loadTurnConfig(): Promise<{ urls: string[]; username?: string; credential?: string } | null> {
@@ -165,7 +165,7 @@ export class Session implements CommandSink {
           return cfg;
         }
       }
-    } catch { /* private mode or corrupt entry — fall through */ }
+    } catch { /* private mode or corrupt entry â€” fall through */ }
     try {
       const res = await fetch("./turn.json", { cache: "no-store" });
       if (!res.ok) return null;
@@ -206,7 +206,7 @@ export class Session implements CommandSink {
         {
           appId: APP_ID,
           password,
-          maxUsers: 2, // agent + this client â€” single session
+          maxUsers: 2, // agent + this client Ã¢â‚¬â€ single session
           trickleIce: true,
           relayConfig: { urls: relayUrls },
           ...(turnConfig ? { turnConfig } : {}),
@@ -235,25 +235,25 @@ export class Session implements CommandSink {
         const full = this.assembler.push(decoded);
         if (!full) return;
         void this.handleCtl(full);
-      } catch { /* malformed frame â€” drop */ }
+      } catch { /* malformed frame Ã¢â‚¬â€ drop */ }
     });
 
     room.onPeerJoin(({ peerId }) => {
-      if (this.peerId && this.peerId !== peerId) return; // seat already taken â€” refuse silently
+      if (this.peerId && this.peerId !== peerId) return; // seat already taken Ã¢â‚¬â€ refuse silently
       this.peerId = peerId;
       window.clearTimeout(this.connectTimer ?? undefined);
       this.openFastLine(peerId);
       cb.onPhase("connected");
-      // 5-hour session cap: auto-disconnect — the user can reconnect with the same password
+      // 5-hour session cap: auto-disconnect â€” the user can reconnect with the same password
       window.clearTimeout(this.sessionLimitTimer ?? undefined);
-      this.sessionLimitTimer = window.setTimeout(() => this.handleClose("Session ended after 5 hours. RemoteX rotates its password automatically — reopen the page with the NEW password shown on the computer."), SESSION_LIMIT_MS);
+      this.sessionLimitTimer = window.setTimeout(() => this.handleClose("Session ended after 5 hours. RemoteX rotates its password automatically â€” reopen the page with the NEW password shown on the computer."), SESSION_LIMIT_MS);
       this.startRtt();
     });
 
     room.onPeerLeave(({ peerId }) => {
-      // agent vanished WITHOUT a clean bye — auto re-dial with the same credentials
-      // (covers transient drops AND the agent's mid-session TURN renewal re-arm)
-      if (peerId === this.peerId) void this.silentRecover();
+        // agent vanished WITHOUT a clean bye — no auto re-dial (that was the connect/disconnect churn).
+        // Show a clear state instead; the user reconnects manually.
+        if (peerId === this.peerId) this.handleClose("Connection lost. Please reconnect.");
     });
 
     room.onError((err) => {
@@ -278,22 +278,22 @@ export class Session implements CommandSink {
       else {
         if (IS_LAN_HOST) {
           const url = `http://${window.location.hostname}:4545/`;
-          this.handleClose(`Could not reach — make sure RemoteX is running, then open exactly ${url} and type the CURRENT password shown in the RemoteX window.`);
+          this.handleClose(`Could not reach â€” make sure RemoteX is running, then open exactly ${url} and type the CURRENT password shown in the RemoteX window.`);
         } else {
-          this.handleClose("Could not reach the computer — check that RemoteX is running and try again.");
+          this.handleClose("Could not reach the computer â€” check that RemoteX is running and try again.");
         }
       }
     }, CONNECT_TIMEOUT_MS);
   }
 
-  /** Tear down the failed room, then re-try from scratch — backoff so we don't hammer public relays (they rate-limit our shared app key at 60 events/min). Silent — the connect button already says Connecting. */
+  /** Tear down the failed room, then re-try from scratch â€” backoff so we don't hammer public relays (they rate-limit our shared app key at 60 events/min). Silent â€” the connect button already says Connecting. */
   private async retrySoon(attempt: number) {
-    console.log(`[session] attempt ${attempt} timed out — retrying…`);
+    console.log(`[session] attempt ${attempt} timed out â€” retryingâ€¦`);
     const room = this.room;
     this.room = null;
     if (room) { try { await room.leave(); } catch { /* already gone */ } }
     window.clearTimeout(this.connectTimer ?? undefined);
-    const wait = attempt === 1 ? 800 : 1800; // 0.8s, then longer — fewer hammer bursts on shared relays
+    const wait = attempt === 1 ? 800 : 1800; // 0.8s, then longer â€” fewer hammer bursts on shared relays
     window.setTimeout(() => { if (!this.disposed) this.start(attempt + 1); }, wait);
   }
 
@@ -396,15 +396,15 @@ export class Session implements CommandSink {
 
   /**
    * Silent recovery for a frozen stream (e.g. the tab was switched away and the WebRTC
-   * pipeline choked). First nudges the ICE layer (restartIce) — most of the time the
+   * pipeline choked). First nudges the ICE layer (restartIce) â€” most of the time the
    * same peer connection just resends a keyframe and frames flow again. If frames are
    * still dead after a grace period, silently re-dials with the SAME credentials
-   * (no user interaction) — the agent notices the dead seat and hands it over.
+   * (no user interaction) â€” the agent notices the dead seat and hands it over.
    */
   async silentRecover(): Promise<void> {
     if (this.disposed || this.recovering) return;
     this.recovering = true;
-    console.warn("[session] stream froze — trying ICE restart for a silent recovery");
+    console.warn("[session] stream froze â€” trying ICE restart for a silent recovery");
     try {
       const pc = (this.room as unknown as { getPeers?: () => Record<string, { connection?: RTCPeerConnection }> } | null)?.getPeers?.()?.[this.peerId ?? ""]?.connection;
       try { (pc as unknown as { restartIce?: () => void } | undefined)?.restartIce?.(); } catch { /* best effort */ }
@@ -415,7 +415,7 @@ export class Session implements CommandSink {
         this.recovering = false;
         return;
       }
-      console.warn("[session] ICE restart did not revive frames — silently re-dialing with the same credentials");
+      console.warn("[session] ICE restart did not revive frames â€” silently re-dialing with the same credentials");
     } catch (err) {
       console.warn("[session] recovery via ICE restart failed:", err);
     }
@@ -452,12 +452,12 @@ export class Session implements CommandSink {
 
   private fastline: RTCDataChannel | null = null;
 
-  /** Unreliable negotiated channel (id 2) — move/scroll/cur never stall behind retransmits. */
+  /** Unreliable negotiated channel (id 2) â€” move/scroll/cur never stall behind retransmits. */
   private openFastLine(peerId: string) {
     this.closeFastLine();
     try {
       const pc = this.room?.getPeers?.()?.[peerId]?.connection as RTCPeerConnection | undefined;
-      if (!pc) { console.warn("[fastline] no pc yet — staying on the trystero channel"); return; }
+      if (!pc) { console.warn("[fastline] no pc yet â€” staying on the trystero channel"); return; }
       const dc = pc.createDataChannel("fastline", { negotiated: true, id: 2, ordered: false, maxRetransmits: 0 });
       dc.binaryType = "arraybuffer";
       dc.onopen = () => console.log("[fastline] unreliable channel open (id 2)");
@@ -468,7 +468,7 @@ export class Session implements CommandSink {
       dc.onclose = () => { if (this.fastline === dc) this.fastline = null; };
       this.fastline = dc;
     } catch (err) {
-      console.warn("[fastline] open failed — staying on the trystero channel:", err);
+      console.warn("[fastline] open failed â€” staying on the trystero channel:", err);
       this.fastline = null;
     }
   }
@@ -483,7 +483,7 @@ export class Session implements CommandSink {
   private fastSend(frame: Uint8Array) {
     const dc = this.fastline;
     if (dc && dc.readyState === "open") {
-      try { dc.send(new Uint8Array(frame).buffer); } catch { /* drop — latest position still wins */ }
+      try { dc.send(new Uint8Array(frame).buffer); } catch { /* drop â€” latest position still wins */ }
     }
     this.fast?.send(frame).catch(() => {});
   }
