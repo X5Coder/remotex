@@ -115,10 +115,10 @@ function notify(title: string, body: string) {
 // ------------------------------------------------------------ window & tray --
 function createMainWindow() {
   win = new BrowserWindow({
-    width: 430,
-    height: 680,
-    minWidth: 400,
-    minHeight: 640,
+    width: 460,
+    height: 780,
+    minWidth: 430,
+    minHeight: 720,
     resizable: true,
     maximizable: false,
     frame: false,
@@ -356,6 +356,9 @@ function registerIpc() {
   /** rotate the password on demand — the hidden window re-arms the room with the new one (old password dies instantly) */
   ipcMain.handle("agent:new-password", () => {
     password = regeneratePassword();
+    // manual rotation resets the 5-hour auto-renew clock too — otherwise a renewal could fire minutes later
+    renewAt = Date.now() + AUTO_RENEW_MS;
+    try { win?.webContents.send("session:tick", { remainingMs: AUTO_RENEW_MS, renewAt }); } catch { /* window hidden */ }
     void syncTurnNow(app.getPath("userData"), identity.roomId, password);
     try { hidden?.webContents.send("session:new-password", password); } catch (err) { console.error("[password] rotation failed:", err); }
     console.log("[password] rotated on user request");

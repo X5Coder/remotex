@@ -353,6 +353,8 @@ export class Session implements CommandSink {
         const ms = await this.room.ping(this.peerId);
         this.opts.cb.onRtt(Math.round(ms));
       } catch { /* ignore single ping failures */ }
+      // liveness pulse for the agent's watchdog (agent drops the seat after ~8 s without one)
+      void this.ctl?.send(encodeCtl({ kind: "hb" })).catch(() => {});
       // watchdog line: if neither the fast nor the ctl cursor beacon has landed for ~400 ms,
       // force the agent to republish the cursor immediately on both lines
       if (this.peerId && this.lastCurAt && Date.now() - this.lastCurAt > 400) {

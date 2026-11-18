@@ -396,7 +396,7 @@ export class RemoteSurface {
 
   private onTouchDown = (e: PointerEvent) => {
     if (this.mode !== "touch" || e.pointerType === "mouse" || this.pid !== null || this.anim || this.busy) return;
-    if ((e.target as HTMLElement).closest(".rail")) return;
+    if ((e.target as HTMLElement).closest(".rail, .edgeHandle, #kbInput")) return;
     e.preventDefault();
     this.pid = e.pointerId;
     this.onScreen = !!(e.target as HTMLElement).closest("#screen");

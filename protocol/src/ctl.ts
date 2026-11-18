@@ -73,6 +73,11 @@ export interface CurSyncMessage {
   seq: number;
 }
 
+/** Client → agent liveness heartbeat (1 Hz while connected). The agent drops the seat after ~8 s without one. */
+export interface HbMessage {
+  kind: "hb";
+}
+
 /** Client → agent watchdog request: "no cur beacon recently — send one NOW on both lines". */
 export interface CurPingMessage {
   kind: "curping";
@@ -112,7 +117,8 @@ export type CtlMessage =
   | ByeMessage
   | ChunkMessage
   | CurSyncMessage
-  | CurPingMessage;
+  | CurPingMessage
+  | HbMessage;
 
 const BUTTONS: readonly MouseButton[] = ["left", "middle", "right"];
 const isButton = (v: unknown): v is MouseButton => typeof v === "string" && BUTTONS.includes(v as MouseButton);
@@ -192,6 +198,8 @@ export function decodeCtl(input: string | unknown): CtlMessage {
     }
     case "curping":
       return { kind: "curping" };
+    case "hb":
+      return { kind: "hb" };
     case "bye":
       return { kind: "bye" };
     case "chunk": {

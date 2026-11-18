@@ -80,6 +80,9 @@ class HiddenAgent {
   private launchRoomId = "";
   private launchPassword = "";
   private icePath: "host" | "srflx" | "relay" | null = null;
+  /** last time ANY frame arrived from the seat holder (hb from the client is 1 Hz) — liveness watchdog */
+  private lastRxAt = 0;
+  private fastlinePeerId: string | null = null;
 
   async start() {
     if (this.started) return;
@@ -167,11 +170,13 @@ class HiddenAgent {
 
     this.fast.onMessage((data, ctx) => {
       if (ctx.peerId !== this.peerId) return;
+      this.lastRxAt = Date.now();
       this.onFastFrame(data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer));
     });
 
     this.ctl.onMessage((raw, ctx) => {
       if (ctx.peerId !== this.peerId) return; // refuse commands from anyone but the seat holder
+      this.lastRxAt = Date.now();
       try {
         const decoded = decodeCtl(raw as string);
         const full = this.assembler.push(decoded);
@@ -199,6 +204,7 @@ class HiddenAgent {
         }
       }
       this.peerId = peerId;
+      this.lastRxAt = Date.now();
       log("peer joined", peerId);
       void this.openFastLine(peerId);
       void room.addStream(stream); // idempotent - make sure the seat holder gets it
@@ -212,13 +218,7 @@ class HiddenAgent {
     room.onPeerLeave(({ peerId }) => {
       if (peerId !== this.peerId) return;
       log("peer left", peerId);
-      this.peerId = null;
-      this.stopLoops();
-      void this.closeFastLine();
-      // release any modifiers held for this session
-      void bridge.invoke("input:inject", { kind: "reset" });
-      void bridge.invoke("agent:notify", { title: "RemoteX", body: "Session ended." });
-      void reportStatus("Session ended - ready for a new connection", "waiting");
+      this.dropSeat("Session ended.");
     });
 
     room.onError((err) => {
@@ -318,8 +318,10 @@ class HiddenAgent {
       }
       const dc = pc.createDataChannel("fastline", { negotiated: true, id: 2, ordered: false, maxRetransmits: 0 });
       dc.binaryType = "arraybuffer";
-      dc.onopen = () => log("[fastline] unreliable channel open (id 2) - move/cur traffic rides it");
+      this.fastlinePeerId = peerId;
+      dc.onopen = () => log("[fastline] unreliable channel open (id 2) — move/cur traffic rides it");
       dc.onmessage = (ev) => {
+        if (this.fastlinePeerId === this.peerId) this.lastRxAt = Date.now();
         const data = ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : new Uint8Array(ev.data as ArrayBuffer);
         this.onFastFrame(data);
       };
@@ -337,7 +339,19 @@ class HiddenAgent {
   private async closeFastLine() {
     const dc = this.fastline;
     this.fastline = null;
+    this.fastlinePeerId = null;
     try { dc?.close(); } catch { /* already gone */ }
+  }
+
+  /** Shared seat teardown for both the clean bye path and the heartbeat-loss path. */
+  private dropSeat(reason: string) {
+    this.peerId = null;
+    this.lastRxAt = 0;
+    this.stopLoops();
+    void this.closeFastLine();
+    void bridge.invoke("input:inject", { kind: "reset" });
+    void bridge.invoke("agent:notify", { title: "RemoteX", body: reason });
+    void reportStatus("Session ended - ready for a new connection", "waiting");
   }
 
   /** Send a fast frame on BOTH lines when fastline is open (tracker dedups at the far end). */
@@ -423,6 +437,12 @@ class HiddenAgent {
    */
   private async sampleStats() {
     if (!this.peerId) return;
+    const rx = this.lastRxAt;
+    if (rx && Date.now() - rx > 8000) {
+      log("heartbeat lost — dropping the dead seat");
+      this.dropSeat("Session ended - connection lost.");
+      return;
+    }
     if (!this.sender) return;
     try {
       const stats = await this.sender.getStats();
@@ -541,6 +561,8 @@ class HiddenAgent {
         await this.publishCursor(true);
         return;
       }
+      case "hb":
+        return; // client liveness pulse — nothing to do, arrival was tracked in the ctl wrapper
       case "bye": {
         await bridge.invoke("session:ended-by-user");
         return;

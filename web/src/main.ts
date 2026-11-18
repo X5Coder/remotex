@@ -15,6 +15,22 @@ const toastEl = $("toast");
 
 initPrefs();
 
+/* ---------- keep the focused field visible above the on-screen keyboard ---------- */
+const keepFieldVisible = () => {
+  const el = document.activeElement as HTMLElement | null;
+  if (el && el.tagName === "INPUT") {
+    try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { /* old browsers */ }
+  }
+};
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", keepFieldVisible);
+  window.visualViewport.addEventListener("scroll", keepFieldVisible);
+}
+window.addEventListener("focusin", (e) => {
+  const t = e.target as HTMLElement | null;
+  if (t?.tagName === "INPUT") window.setTimeout(keepFieldVisible, 280);
+});
+
 let remote: RemoteSurface | null = null;
 let session: Session | null = null;
 let wakeLock: { release: () => Promise<void> } | null = null;
