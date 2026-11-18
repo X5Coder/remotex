@@ -150,11 +150,8 @@ export class Session implements CommandSink {
 
   constructor(private opts: { roomId: string; password: string; cb: SessionCallbacks }) {}
 
-  /** TURN relay for THIS device.
-   *  1) one-time setup link from the agent window (#turn=…), persisted in localStorage — the user's own credential, never public;
-   *  2) build-time injection next to index.html (self-hosted deployments);
-   *  Falls back to the built-in Open Relay (public static-auth, no account) when absent. */
-  private async loadTurnConfig(): Promise<{ urls: string[]; username?: string; credential?: string } | null> {
+  /** Synchronous read of this device's saved credential — the instant path (no network). */
+  private loadStoredTurn(): StoredTurnConfig | null {
     try {
       const stored = localStorage.getItem(STORE_KEY);
       if (stored) {
@@ -163,13 +160,23 @@ export class Session implements CommandSink {
           ? j.urls.filter((u): u is string => typeof u === "string" && u.length > 0)
           : typeof j?.urls === "string" && j.urls ? [j.urls] : [];
         if (urls.length > 0) {
-          const cfg: { urls: string[]; username?: string; credential?: string } = { urls: urls.slice(0, 5) };
+          const cfg: StoredTurnConfig = { urls: urls.slice(0, 5) };
           if (typeof j.username === "string") cfg.username = j.username;
           if (typeof j.credential === "string") cfg.credential = j.credential;
           return cfg;
         }
       }
     } catch { /* private mode or corrupt entry — fall through */ }
+    return null;
+  }
+
+  /** TURN relay for THIS device.
+   *  1) the credential saved on this device (one-time #turn= link / earlier Apps Script sync),
+   *  2) build-time injection next to index.html (self-hosted deployments: ./turn.json);
+   *  Falls back to the built-in Open Relay (public static-auth, no account) when absent. */
+  private async loadTurnConfig(): Promise<{ urls: string[]; username?: string; credential?: string } | null> {
+    const stored = this.loadStoredTurn();
+    if (stored) return stored;
     try {
       const res = await fetch("./turn.json", { cache: "no-store" });
       if (!res.ok) return null;
@@ -190,16 +197,31 @@ export class Session implements CommandSink {
   async start(attempt = 1) {
     const { roomId, password, cb } = this.opts;
     if (attempt > 1) console.log(`[session] retry attempt ${attempt}`);
-    // 0) freshest source: the Apps Script bridge (auto-synced by the agent on every launch).
-    //    On success cache it locally so a flaky script never breaks a connect.
-    const synced = await fetchSyncedTurn(roomId, password);
-    if (synced) {
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(synced)); } catch { /* private mode */ }
+    // TURN pick — never let the Apps Script bridge decide how long "Connecting…" spins.
+    // The credential saved on THIS device is used instantly (the bridge is asked to refresh
+    // the cache in the BACKGROUND, for next time). Only when nothing is stored do we wait —
+    // and only ~4.5 s instead of 20 s — before joining on the built-in Open Relay anyway.
+    // On retries the stored credential is ignored so one bad relay can't stall every attempt.
+    let userTurn: StoredTurnConfig | null = null;
+    if (attempt === 1) {
+      userTurn = this.loadStoredTurn();
+      if (userTurn) {
+        void fetchSyncedTurn(roomId, password)
+          .then((s) => { if (s) { try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch { /* private mode */ } } })
+          .catch(() => { /* cache refresh is best-effort */ });
+        console.log("[session] TURN: saved on this device (cache hit — refreshing in background)");
+      } else {
+        const synced = await fetchSyncedTurn(roomId, password, 4500);
+        if (synced) {
+          try { localStorage.setItem(STORE_KEY, JSON.stringify(synced)); } catch { /* private mode */ }
+        }
+        userTurn = synced ?? (await this.loadTurnConfig());
+        console.log("[session] TURN:", synced ? "auto-sync (apps script)" : userTurn ? "turn.json / saved on this device" : "built-in Open Relay");
+      }
+    } else {
+      console.log("[session] TURN: built-in Open Relay (retry ignores the stored relay)");
     }
-    // user's stored/synced credential wins; otherwise the built-in Open Relay (public, no account)
-    const userTurn = synced ?? (await this.loadTurnConfig());
     const turnConfig = await resolveTurnConfig(userTurn);
-    console.log("[session] TURN:", synced ? "auto-sync (apps script)" : userTurn ? "saved on this device" : "built-in Open Relay");
     const relayUrls = await buildRelayUrls();
     console.log("[session] relay urls:", relayUrls.join(", ") || "(none)");
     cb.onPhase("connecting");

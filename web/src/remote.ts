@@ -29,9 +29,11 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getEl
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-const GAIN = 2;
-const LAND_GAIN = 1.7;
-const ACCEL = 0.5;
+// touch-mode arrow sensitivity — high enough that ONE normal finger stroke sweeps the remote
+// screen (the old 2.0/1.7 needed several strokes per sweep); fast flicks throw it further via ACCEL
+const GAIN = 3.4;
+const LAND_GAIN = 2.8;
+const ACCEL = 0.8;
 const ANIM_MS = 380;
 const LONG_PRESS_MS = 550;
 
@@ -382,8 +384,8 @@ export class RemoteSurface {
       this.S.cx = this.S.tx;
       this.S.cy = this.S.ty;
     } else {
-      this.S.cx += (this.S.tx - this.S.cx) * 0.4;
-      this.S.cy += (this.S.ty - this.S.cy) * 0.4;
+      this.S.cx += (this.S.tx - this.S.cx) * 0.5;
+      this.S.cy += (this.S.ty - this.S.cy) * 0.5;
     }
     const cr = this.contentRect();
     this.cursor.style.transform = `translate3d(${(cr.ox + this.S.cx * cr.cw).toFixed(1)}px,${(cr.oy + this.S.cy * cr.ch).toFixed(1)}px,0)`;
@@ -671,6 +673,13 @@ export class RemoteSurface {
       this.tDrag = this.tLong = this.tScroll = false;
       const p = this.norm(e);
       this.sink.move(+p.x.toFixed(4), +p.y.toFixed(4));
+      // tablet is ABSOLUTE touch — the local arrow must track the finger immediately,
+      // not wait a full RTT for the host beacon (mouse mode already snaps locally)
+      this.lastPointerType = "touch";
+      this.S.synced = true;
+      this.S.tx = p.x;
+      this.S.ty = p.y;
+      this.kick();
       window.clearTimeout(this.tTimer);
       this.tTimer = window.setTimeout(() => {
         if (this.tp.size === 1 && !this.tDrag) {
@@ -708,6 +717,10 @@ export class RemoteSurface {
     }
     if (this.tDrag) {
       const n = this.norm(e);
+      this.S.synced = true; // absolute touch — snap the local arrow to the finger, don't trail the host echo
+      this.S.tx = n.x;
+      this.S.ty = n.y;
+      this.kick();
       this.sink.move(+n.x.toFixed(4), +n.y.toFixed(4));
     }
   };

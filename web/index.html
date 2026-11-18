@@ -46,41 +46,11 @@
       </a>
       <span class="footRight">
         <button class="iconBtn small" data-open-settings aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
-        <span class="verTag">RemoteX v6.2.11</span>
+        <span class="verTag">RemoteX v6.2.12</span>
       </span>
     </div>
   </form>
 
-  <!-- settings dialog -->
-  <div class="overlay" id="settingsOverlay" hidden>
-    <div class="dialog" id="settingsDialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
-      <div class="dialogHead">
-        <h2 class="dialogTitle" id="settingsTitle">Settings</h2>
-        <button class="iconBtn small" id="settingsClose" aria-label="Close settings">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
-        </button>
-      </div>
-      <div class="dialogBody">
-        <div class="settingRow">
-          <div class="settingInfo">
-            <span class="settingName">Appearance</span>
-            <span class="settingHint">Light by default — dark for night work</span>
-          </div>
-          <div class="segmented" id="themeSeg" role="group" aria-label="Theme">
-            <button class="segBtn isOn" data-theme-btn="light" type="button">Light</button>
-            <button class="segBtn" data-theme-btn="dark" type="button">Dark</button>
-          </div>
-        </div>
-        <div class="settingRow">
-          <div class="settingInfo">
-            <span class="settingName">Arrow cursor</span>
-            <span class="settingHint">Hide the on-screen arrow (site only)</span>
-          </div>
-          <button class="switch" id="arrowSwitch" role="switch" aria-checked="true" aria-label="Toggle arrow cursor"><span class="knob"></span></button>
-        </div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <!-- ============ Remote surface (hidden until connected) ============ -->
@@ -113,7 +83,6 @@
           <button class="btn kb" id="kbBtn2" type="button" aria-label="Keyboard">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
           </button>
-          <button class="btn" id="settingsBtnLand" type="button" data-open-settings aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
           <button class="btn" id="exitBtn" type="button" aria-label="Exit">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
           </button>
@@ -135,6 +104,37 @@
   <button class="btn kb" id="kbBtn3" type="button" aria-label="Keyboard">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
   </button>
+</div>
+
+<!-- settings dialog — direct child of <body> so it works on the connect screen AND the remote surface (it used to be nested in #connectScreen, which is hidden during a session, so the gear did nothing there) -->
+<div class="overlay" id="settingsOverlay" hidden>
+  <div class="dialog" id="settingsDialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="dialogHead">
+      <h2 class="dialogTitle" id="settingsTitle">Settings</h2>
+      <button class="iconBtn small" id="settingsClose" aria-label="Close settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="dialogBody">
+      <div class="settingRow">
+        <div class="settingInfo">
+          <span class="settingName">Appearance</span>
+          <span class="settingHint">Light by default — dark for night work</span>
+        </div>
+        <div class="segmented" id="themeSeg" role="group" aria-label="Theme">
+          <button class="segBtn isOn" data-theme-btn="light" type="button">Light</button>
+          <button class="segBtn" data-theme-btn="dark" type="button">Dark</button>
+        </div>
+      </div>
+      <div class="settingRow">
+        <div class="settingInfo">
+          <span class="settingName">Arrow cursor</span>
+          <span class="settingHint">Hide the on-screen arrow (site only)</span>
+        </div>
+        <button class="switch" id="arrowSwitch" role="switch" aria-checked="true" aria-label="Toggle arrow cursor"><span class="knob"></span></button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="toast"></div>
