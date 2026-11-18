@@ -56,7 +56,6 @@ body{
   transition:background-color .25s ease,color .25s ease;
 }
 
-/* ============ settings FAB (login page only) ============ */
 .iconBtn{width:38px;height:38px;border:1px solid transparent;border-radius:12px;background:transparent;color:var(--muted);
   display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s,color .15s,transform .15s}
 .iconBtn:hover{background:var(--accent-soft);color:var(--accent)}
@@ -65,17 +64,6 @@ body{
 .iconBtn svg{width:19px;height:19px}
 .iconBtn.small svg{width:16px;height:16px}
 .iconBtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.gearFab{
-  position:absolute;top:calc(12px + env(safe-area-inset-top));right:calc(12px + env(safe-area-inset-right));z-index:20;
-  width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--muted);
-  display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 14px rgba(15,17,21,.12);
-  transition:color .15s,border-color .15s,transform .15s;touch-action:manipulation;
-  animation:fadeDown .45s cubic-bezier(.32,.72,.25,1) both;
-}
-.gearFab:hover{color:var(--accent);border-color:var(--accent)}
-.gearFab:active{transform:scale(.9)}
-.gearFab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.gearFab svg{width:19px;height:19px}
 
 /* ============ connect screen ============ */
 .connectScreen{height:100%;display:flex;flex-direction:column;overflow-y:auto;background:var(--bg);background-image:radial-gradient(120% 90% at 50% -30%, var(--accent-soft), transparent 55%)}
@@ -165,11 +153,14 @@ body{
   font:inherit;font-size:12px;font-weight:700;cursor:pointer;transition:background .18s,color .18s,box-shadow .18s}
 .segBtn.isOn{background:var(--card);color:var(--accent);box-shadow:0 1px 4px rgba(15,17,21,.12)}
 
-.switch{position:relative;width:46px;height:28px;border:0;border-radius:999px;background:#d4d4d8;cursor:pointer;transition:background .2s;flex:none}
-.switch .knob{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .2s}
-.switch[aria-checked="true"]{background:var(--accent)}
-.switch[aria-checked="true"] .knob{transform:translateX(18px)}
+.switch{position:relative;width:50px;height:30px;border:0;border-radius:999px;background:#d4d4d8;cursor:pointer;transition:background .25s cubic-bezier(.4,0,.2,1), box-shadow .25s;flex:none;box-shadow:inset 0 1px 3px rgba(15,17,21,.18)}
+.switch .knob{position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:linear-gradient(180deg,#ffffff 0%,#f3f4f6 100%);box-shadow:0 2px 5px rgba(15,17,21,.3), inset 0 -1px 1px rgba(15,17,21,.08);transition:transform .28s cubic-bezier(.34,1.56,.64,1)}
+.switch:hover .knob{box-shadow:0 3px 7px rgba(15,17,21,.35), inset 0 -1px 1px rgba(15,17,21,.08)}
+.switch[aria-checked="true"]{background:var(--accent);box-shadow:inset 0 1px 3px rgba(0,0,0,.25)}
+.switch[aria-checked="true"] .knob{transform:translateX(20px)}
 .switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[data-theme="dark"] .switch{background:#2a2a2a}
+[data-theme="dark"] .switch .knob{background:linear-gradient(180deg,#f2f2f2 0%,#d4d4d4 100%)}
 
 /* ============ remote surface ============ */
 .app{position:fixed;left:0;right:0;top:0;height:var(--h,100vh);display:flex;flex-direction:column;
@@ -190,39 +181,45 @@ body{
 body.hide-arrow #cursor{display:none}
 html.hide-arrow #cursor{display:none}
 
-/* thin right-edge handle — opens the floating controls menu */
-.edgeHandle{
-  position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:45;
-  width:18px;height:96px;border:0;border-radius:12px 0 0 12px;cursor:pointer;
-  background:rgba(255,255,255,.16);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  border:1px solid rgba(255,255,255,.18);border-right:0;
-  display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.85);
-  transition:background .2s, color .2s, width .2s;
-}
-.edgeHandle:hover{background:rgba(255,255,255,.26);width:22px}
-.edgeHandle:focus-visible{outline:2px solid #fff;outline-offset:2px}
-.edgeHandle svg{width:14px;height:14px;transition:transform .25s}
-body.menu-open .edgeHandle svg{transform:rotate(180deg)}
-
-/* floating right menu — slides in from the right edge */
+/* side rail — always visible, tab expands it with a pop animation */
 .rail{
-  position:fixed;right:12px;top:50%;z-index:46;
-  display:flex;flex-direction:column;align-items:center;gap:7px;padding:10px 7px;border-radius:20px;
-  background:rgba(15,17,21,.62);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
-  border:1px solid rgba(255,255,255,.14);box-shadow:0 18px 40px rgba(0,0,0,.45);
-  transform:translate(calc(100% + 20px), -50%);opacity:0;pointer-events:none;
-  transition:transform .28s cubic-bezier(.32,.72,.25,1), opacity .22s ease;
+  position:fixed;right:10px;top:50%;z-index:46;width:46px;
+  display:flex;flex-direction:column;gap:5px;padding:7px 6px;border-radius:18px;
+  background:rgba(16,18,23,.55);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid rgba(255,255,255,.16);box-shadow:0 14px 36px rgba(0,0,0,.4);
+  transform:translateY(-50%);
+  transition:width .32s cubic-bezier(.34,1.45,.44,1), background .3s;
+  overflow:visible;
 }
-body.menu-open .rail{transform:translate(0, -50%);opacity:1;pointer-events:auto}
-.railBtn{width:40px;height:40px;border:0;border-radius:12px;background:transparent;color:rgba(255,255,255,.92);
-  display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s, transform .15s;touch-action:manipulation}
-.railBtn:hover{background:rgba(255,255,255,.14)}
-.railBtn:active{transform:scale(.9)}
+body.menu-open .rail{width:186px;background:rgba(16,18,23,.78)}
+.railBtn{
+  display:flex;align-items:center;gap:11px;width:100%;height:40px;border:0;border-radius:12px;
+  background:transparent;color:rgba(255,255,255,.92);cursor:pointer;padding:0 8px;
+  transition:background .15s, transform .15s;touch-action:manipulation;position:relative;
+}
+.railBtn svg{width:19px;height:19px;flex:none}
+.railBtn:hover{background:rgba(255,255,255,.13)}
+.railBtn:active{transform:scale(.93)}
 .railBtn.down{background:rgba(255,255,255,.28)}
-.railBtn svg{width:19px;height:19px}
 .railBtn.kb.on{background:rgba(255,255,255,.24);color:#fff;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.55)}
+.railBtn.danger:hover{background:#b30000}
 .railBtn:focus-visible{outline:2px solid #fff;outline-offset:2px}
-.railSep{width:22px;height:1px;background:rgba(255,255,255,.18)}
+.railLabel{font-size:11.5px;font-weight:650;letter-spacing:.2px;white-space:nowrap;
+  opacity:0;transform:translateX(8px);transition:opacity .18s ease .06s, transform .26s cubic-bezier(.34,1.45,.44,1) .06s;pointer-events:none}
+body.menu-open .railLabel{opacity:1;transform:none}
+.railSep{display:none;width:100%;height:1px;background:rgba(255,255,255,.16);margin:2px 0}
+body.menu-open .railSep{display:block}
+.foldTab{
+  position:absolute;left:-16px;top:50%;transform:translateY(-50%);
+  width:22px;height:76px;border:1px solid rgba(255,255,255,.2);border-right:0;border-radius:12px 0 0 12px;
+  background:rgba(16,18,23,.78);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  color:rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;cursor:pointer;
+  transition:background .2s, color .2s;
+}
+.foldTab:hover{background:rgba(255,255,255,.16);color:#fff}
+.foldTab:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.foldTab svg{width:12px;height:12px;transition:transform .3s cubic-bezier(.34,1.45,.44,1)}
+body.menu-open .foldTab svg{transform:rotate(180deg)}
 
 /* fullscreen / layout modes (same contract the controller expects) */
 body.focus{background:#000}

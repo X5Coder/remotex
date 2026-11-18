@@ -438,7 +438,8 @@ class HiddenAgent {
   private async sampleStats() {
     if (!this.peerId) return;
     const rx = this.lastRxAt;
-    if (rx && Date.now() - rx > 8000) {
+    if (rx && Date.now() - rx > 12_000) {
+      // 12 s — tolerant of mobile timer throttling, still fast enough to free a dead seat
       log("heartbeat lost — dropping the dead seat");
       this.dropSeat("Session ended - connection lost.");
       return;

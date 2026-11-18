@@ -1,7 +1,7 @@
 /**
  * UI preferences for the web client: theme (light default / dark) and arrow-cursor
- * visibility (site overlay only). Persisted in localStorage; theme is applied
- * pre-paint by an inline script in index.html.
+ * visibility (site overlay only). Theme is applied pre-paint by an inline script in
+ * index.html and persisted in localStorage. The rail expands/collapses locally.
  */
 
 const THEME_KEY = "remotex.theme";
@@ -32,15 +32,16 @@ export function applyHideArrow(hidden: boolean) {
   if (sw) sw.setAttribute("aria-checked", String(!hidden)); // switch ON = arrow VISIBLE
 }
 
-/** Wire the gear button, the settings dialog, and the right-edge controls handle. Call once on boot. */
+/** Wire the settings dialog, the rail tab (click + drag-outward to collapse), and outside-tap close. */
 export function initPrefs() {
   applyTheme(readTheme());
   applyHideArrow(readHideArrow());
 
-  const settingsBtn = document.getElementById("settingsBtn");
+  const gearBtn = document.getElementById("settingsRailBtn");
   const overlay = document.getElementById("settingsOverlay");
   const closeBtn = document.getElementById("settingsClose");
   const arrowSwitch = document.getElementById("arrowSwitch");
+  const foldTab = document.getElementById("foldTab");
 
   const openDialog = () => {
     if (!overlay) return;
@@ -50,6 +51,7 @@ export function initPrefs() {
   };
   const closeDialog = () => {
     if (!overlay) return;
+    if (document.activeElement && (document.activeElement as HTMLElement).blur) (document.activeElement as HTMLElement).blur();
     overlay.classList.add("closing");
     window.setTimeout(() => {
       overlay.hidden = true;
@@ -57,15 +59,57 @@ export function initPrefs() {
     }, 200);
   };
 
-  settingsBtn?.addEventListener("click", openDialog);
+  gearBtn?.addEventListener("click", openDialog);
   closeBtn?.addEventListener("click", closeDialog);
   overlay?.addEventListener("click", (e) => { if (e.target === overlay) closeDialog(); });
+
+  const setMenuOpen = (open: boolean) => {
+    document.body.classList.toggle("menu-open", open);
+    foldTab?.setAttribute("aria-pressed", String(open));
+  };
+
+  /* fold tab: click toggles; drag outward (away from the screen) collapses */
+  let dragStartX: number | null = null;
+  let dragMoved = 0;
+  foldTab?.addEventListener("pointerdown", (e) => {
+    dragStartX = e.clientX;
+    dragMoved = 0;
+    try { foldTab.setPointerCapture(e.pointerId); } catch { /* old browsers */ }
+    e.preventDefault();
+  });
+  foldTab?.addEventListener("pointermove", (e) => {
+    if (dragStartX === null) return;
+    dragMoved = e.clientX - dragStartX;
+    if (dragMoved > 34) { // pulled outward — collapse
+      setMenuOpen(false);
+      dragStartX = null;
+    }
+  });
+  const endDrag = (e: PointerEvent) => {
+    if (dragStartX === null) return;
+    const moved = Math.abs((e.clientX ?? 0) - dragStartX);
+    dragStartX = null;
+    if (moved < 8) setMenuOpen(!document.body.classList.contains("menu-open")); // treat as a tap
+  };
+  foldTab?.addEventListener("pointerup", endDrag);
+  foldTab?.addEventListener("pointercancel", () => { dragStartX = null; });
+
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       if (overlay && !overlay.hidden) closeDialog();
-      document.body.classList.remove("menu-open");
+      setMenuOpen(false);
     }
   });
+
+  /* tap outside the rail collapses it (capture phase wins over the video handlers) */
+  document.addEventListener("pointerdown", (e) => {
+    if (!document.body.classList.contains("menu-open")) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.closest(".rail") || t.closest("#settingsOverlay"))) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuOpen(false);
+  }, true);
 
   document.querySelectorAll<HTMLElement>("[data-theme-btn]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -80,21 +124,4 @@ export function initPrefs() {
     try { localStorage.setItem(ARROW_KEY, next ? "1" : "0"); } catch { /* private mode */ }
     applyHideArrow(next);
   });
-
-  /* right-edge handle toggles the floating controls menu */
-  const handle = document.getElementById("edgeHandle");
-  handle?.addEventListener("click", () => {
-    const open = document.body.classList.toggle("menu-open");
-    handle.setAttribute("aria-pressed", String(open));
-  });
-  /* tap anywhere outside the menu closes it (capture phase so it wins over the screen handler) */
-  document.addEventListener("pointerdown", (e) => {
-    if (!document.body.classList.contains("menu-open")) return;
-    const t = e.target as HTMLElement | null;
-    if (t && (t.closest(".rail") || t.closest("#edgeHandle"))) return;
-    e.preventDefault();
-    e.stopPropagation();
-    document.body.classList.remove("menu-open");
-    handle?.setAttribute("aria-pressed", "false");
-  }, true);
 }
