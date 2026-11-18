@@ -213,14 +213,41 @@ export class RemoteSurface {
   setStream(stream: MediaStream | null) {
     if (stream) {
       this.video.srcObject = stream;
-      this.screenEl.classList.add("live");
       this.startFrameWatch();
+      this.armFirstFrame();
       void this.video.play().catch(() => { /* autoplay will retry via onStream */ });
     } else {
       this.video.srcObject = null;
       this.screenEl.classList.remove("live");
       this.stopFrameWatch();
     }
+  }
+
+  /** Only declare the stream "live" once a REAL frame has been painted — until then the
+   *  placeholder stays visible, so a stalled/black stream is never a silent black screen. */
+  private armFirstFrame() {
+    const v = this.video as HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: () => void) => number;
+    };
+    const onFrame = () => {
+      this.screenEl.classList.add("live");
+      console.log("[remote] first video frame decoded — stream is live");
+    };
+    if (typeof v.requestVideoFrameCallback === "function") {
+      v.requestVideoFrameCallback(onFrame);
+      // belt-and-braces: rVFC can be flaky on some builds — also accept currentTime>0
+      const guard = window.setInterval(() => {
+        if (v.currentTime > 0) { window.clearInterval(guard); onFrame(); }
+      }, 500);
+      return;
+    }
+    const onTime = () => {
+      if (v.currentTime > 0) {
+        v.removeEventListener("timeupdate", onTime);
+        onFrame();
+      }
+    };
+    v.addEventListener("timeupdate", onTime);
   }
 
   /* ---------- stale-frame watchdog (auto re-sync when backgrounded tabs freeze) ---------- */

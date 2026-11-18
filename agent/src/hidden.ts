@@ -1,4 +1,4 @@
-/**
+﻿/**
  * RemoteX Agent - hidden capture window (renderer, ESM bundled by esbuild).
  *
  * Responsibilities:
@@ -80,8 +80,9 @@ class HiddenAgent {
   private launchRoomId = "";
   private launchPassword = "";
   private icePath: "host" | "srflx" | "relay" | null = null;
-  /** last time ANY frame arrived from the seat holder (hb from the client is 1 Hz) — liveness watchdog */
+  /** last time ANY frame arrived from the seat holder (hb from the client is 1 Hz) â€” liveness watchdog */
   private lastRxAt = 0;
+  private fpsLogged = false;
   private fastlinePeerId: string | null = null;
 
   async start() {
@@ -319,7 +320,7 @@ class HiddenAgent {
       const dc = pc.createDataChannel("fastline", { negotiated: true, id: 2, ordered: false, maxRetransmits: 0 });
       dc.binaryType = "arraybuffer";
       this.fastlinePeerId = peerId;
-      dc.onopen = () => log("[fastline] unreliable channel open (id 2) — move/cur traffic rides it");
+      dc.onopen = () => log("[fastline] unreliable channel open (id 2) â€” move/cur traffic rides it");
       dc.onmessage = (ev) => {
         if (this.fastlinePeerId === this.peerId) this.lastRxAt = Date.now();
         const data = ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : new Uint8Array(ev.data as ArrayBuffer);
@@ -439,7 +440,7 @@ class HiddenAgent {
     if (!this.peerId) return;
     const rx = this.lastRxAt;
     if (rx && Date.now() - rx > 60_000) {
-      // 60 s of TOTAL silence — mobile tabs legitimately freeze JS when the screen locks;
+      // 60 s of TOTAL silence â€” mobile tabs legitimately freeze JS when the screen locks;
       // only a truly ghosted peer is dropped. Active users never notice any of this.
       log("peer silent for 60 s - dropping the dead seat");
       this.dropSeat("Session ended - connection lost.");
@@ -462,6 +463,10 @@ class HiddenAgent {
           candidates.set((r as unknown as { id: string }).id, r);
         }
       });
+      if (!this.fpsLogged) {
+        this.fpsLogged = true;
+        log(`[video] encoder fps (first sample): ${fps.toFixed(1)}`);
+      }
       for (const pair of pairs) {
         const nominated = pair["nominated"] === true || pair["selected"] === true;
         if (!nominated) continue;
@@ -564,7 +569,7 @@ class HiddenAgent {
         return;
       }
       case "hb":
-        return; // client liveness pulse — nothing to do, arrival was tracked in the ctl wrapper
+        return; // client liveness pulse â€” nothing to do, arrival was tracked in the ctl wrapper
       case "bye": {
         await bridge.invoke("session:ended-by-user");
         return;
