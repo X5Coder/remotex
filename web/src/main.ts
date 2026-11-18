@@ -5,12 +5,15 @@
 import { RemoteSurface } from "./remote";
 import { ConnectController } from "./connect";
 import { Session, TURN_STORE_KEY, parseTurnFragment } from "./session";
+import { initPrefs } from "./prefs";
 
 const $ = (id: string) => document.getElementById(id)!;
 
 const appEl = $("app");
 const dockEl = $("dock");
 const toastEl = $("toast");
+
+initPrefs();
 
 let remote: RemoteSurface | null = null;
 let session: Session | null = null;

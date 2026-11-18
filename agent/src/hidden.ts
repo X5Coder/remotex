@@ -30,7 +30,7 @@ import {
 const APP_ID = "remotex-1";
 const BITRATE_LADDER = [20_000_000, 12_000_000, 8_000_000, 4_000_000];
 const FPS_FLOOR = 45;
-const RELAY_CAP_BITRATE = 2_000_000; // relayed path = tiny free quota — cap media so control packets never queue behind it
+const RELAY_CAP_BITRATE = 2_000_000; // relayed path = tiny free quota - cap media so control packets never queue behind it
 const RELAY_URLS = [
   "ws://127.0.0.1:4545", // our own LAN relay â€” single fixed port
   "wss://nos.lol",
@@ -301,7 +301,7 @@ class HiddenAgent {
   }
 
   /**
-   * Unreliable negotiated channel (id 2, "fastline") — carries mouse moves and cursor
+   * Unreliable negotiated channel (id 2, "fastline") - carries mouse moves and cursor
    * beacons FIRST-CLASS: drops (not stalls) when lossy; the receiver only needs the
    * latest absolute position. Complements the ordered trystero channel, which keeps
    * the reliable fallback (clicks/keys ride the JSON ctl channel either way).
@@ -313,12 +313,12 @@ class HiddenAgent {
     try {
       const pc = this.room?.getPeers?.()?.[peerId]?.connection as RTCPeerConnection | undefined;
       if (!pc) {
-        log("[fastline] no pc yet — staying on the trystero channel");
+        log("[fastline] no pc yet - staying on the trystero channel");
         return;
       }
       const dc = pc.createDataChannel("fastline", { negotiated: true, id: 2, ordered: false, maxRetransmits: 0 });
       dc.binaryType = "arraybuffer";
-      dc.onopen = () => log("[fastline] unreliable channel open (id 2) — move/cur traffic rides it");
+      dc.onopen = () => log("[fastline] unreliable channel open (id 2) - move/cur traffic rides it");
       dc.onmessage = (ev) => {
         const data = ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : new Uint8Array(ev.data as ArrayBuffer);
         this.onFastFrame(data);
@@ -329,7 +329,7 @@ class HiddenAgent {
       };
       this.fastline = dc;
     } catch (err) {
-      console.warn("[fastline] open failed — staying on the trystero channel:", err instanceof Error ? err.message : String(err));
+      console.warn("[fastline] open failed - staying on the trystero channel:", err instanceof Error ? err.message : String(err));
       this.fastline = null;
     }
   }
@@ -344,7 +344,7 @@ class HiddenAgent {
   private fastSend(frame: Uint8Array) {
     const dc = this.fastline;
     if (dc && dc.readyState === "open") {
-      try { dc.send(new Uint8Array(frame).buffer); } catch { /* drop — next frame will arrive */ }
+      try { dc.send(new Uint8Array(frame).buffer); } catch { /* drop - next frame will arrive */ }
     }
     void this.fast?.send(frame).catch(() => {});
   }
@@ -427,7 +427,7 @@ class HiddenAgent {
     try {
       const stats = await this.sender.getStats();
       let fps = 0, packetsLost = 0;
-      // selected-pair detection — see below
+      // selected-pair detection - see below
       const candidates = new Map<string, unknown>();
       const pairs: Array<Record<string, unknown>> = [];
       stats.forEach((r) => {
@@ -454,7 +454,7 @@ class HiddenAgent {
         }
         break;
       }
-      if (this.icePath === "relay") return; // media pinned to the relay budget — leave it pinned
+      if (this.icePath === "relay") return; // media pinned to the relay budget - leave it pinned
       // packet-loss DELTA over the last second â€” a spike means the link is saturated
       const lossDelta = Math.max(0, packetsLost - this.lastPacketsLost);
       this.lastPacketsLost = packetsLost;
@@ -481,7 +481,7 @@ class HiddenAgent {
     } catch { /* stats not ready */ }
   }
 
-  /** Pin the sender to the relay budget: 2 Mbps / 30 fps — frees the pipe so
+  /** Pin the sender to the relay budget: 2 Mbps / 30 fps - frees the pipe so
    *  7-byte control packets never queue behind megabits of video. */
   private async applyRelayCap() {
     if (!this.sender) return;
@@ -491,7 +491,7 @@ class HiddenAgent {
         params.encodings[0].maxBitrate = RELAY_CAP_BITRATE;
         params.encodings[0].maxFramerate = 30;
         await this.sender.setParameters(params);
-        log("[ice] relay path — media pinned to 2 Mbps / 30 fps (control channel gets the headroom)");
+        log("[ice] relay path - media pinned to 2 Mbps / 30 fps (control channel gets the headroom)");
       }
     } catch (err) { console.warn("[ice] relay cap failed:", err); }
   }
@@ -559,7 +559,7 @@ class HiddenAgent {
    * The capture stream is REUSED (only the room/peer state is rebuilt) â€” stopping and
    * re-capturing the screen would cost seconds and flash a black frame for no benefit.
    * A new password can be passed to rotate credentials (old password stops working instantly).
-   * graceful=false (mid-session TURN renewal): no "bye" — the client notices the drop and
+   * graceful=false (mid-session TURN renewal): no "bye" - the client notices the drop and
    * silently re-joins the SAME room with the SAME credentials.
    */
   async rearm(newPassword?: string, opts?: { graceful?: boolean }) {
@@ -611,6 +611,7 @@ window.addEventListener("DOMContentLoaded", () => {
     void reportStatus("Fatal error: " + (err instanceof Error ? err.message : String(err)), "error");
   });
 });
+
 
 
 

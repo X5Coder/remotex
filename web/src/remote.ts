@@ -161,14 +161,10 @@ export class RemoteSurface {
     listen(this.screenEl, "pointerup", this.tabletUp as EventListener);
     listen(this.screenEl, "pointercancel", this.tabletUp as EventListener);
 
-    // buttons (grid + land overlay + dock)
+    // side rail buttons (left/right click, keyboard, exit) — the only chrome left on the remote screen
     this.holdButton($id("leftBtn") as HTMLButtonElement, "left");
     this.holdButton($id("rightBtn") as HTMLButtonElement, "right");
-    this.holdButton($id("leftBtn2") as HTMLButtonElement, "left");
-    this.holdButton($id("rightBtn2") as HTMLButtonElement, "right");
     this.bindKb($id("kbBtn") as HTMLButtonElement);
-    this.bindKb($id("kbBtn3") as HTMLButtonElement);
-    $id("kbBtn2").addEventListener("click", () => (this.kbOpen ? this.closeKb() : this.openKb()));
     $id("exitBtn").addEventListener("click", () => { if (this.kbOpen) this.closeKb(); if (this.full) this.closeFull(); });
     $id("backdrop").addEventListener("click", () => this.closeFull());
 
@@ -400,7 +396,7 @@ export class RemoteSurface {
 
   private onTouchDown = (e: PointerEvent) => {
     if (this.mode !== "touch" || e.pointerType === "mouse" || this.pid !== null || this.anim || this.busy) return;
-    if ((e.target as HTMLElement).closest(".btns, .lui")) return;
+    if ((e.target as HTMLElement).closest(".rail")) return;
     e.preventDefault();
     this.pid = e.pointerId;
     this.onScreen = !!(e.target as HTMLElement).closest("#screen");

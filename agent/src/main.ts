@@ -134,8 +134,8 @@ function createMainWindow() {
   });
   void win.loadFile(path.join(__dirname, "window.html"));
   win.on("close", () => {
-    // the window IS the app — closing it quits for real (settings restored, fresh password next launch)
-    app.quit();
+    // the window IS the app — closing it kills the background too (settings restored, fresh password next launch)
+    hardShutdown("window closed");
   });
   win.on("closed", () => { win = null; });
 }
@@ -155,7 +155,7 @@ function createTray() {
       { label: "Show RemoteX", click: () => ensureWindow() },
       { label: "Terminate", click: () => stopSession() },
       { type: "separator" },
-      { label: "Quit RemoteX", click: () => app.quit() },
+      { label: "Quit RemoteX", click: () => hardShutdown("tray quit") },
     ])
   );
   tray.on("click", () => {
@@ -220,6 +220,16 @@ function stopPower() {
     try { powerSaveBlocker.stop(id); } catch { /* already stopped */ }
   }
   powerSaveBlockerIds = [];
+}
+
+/** Hard kill: everything the agent started dies with it — no hidden leftovers. */
+function hardShutdown(reason = "window closed") {
+  try { const { ensureHostCursorVisible } = require("./cursor-visibility") as typeof import("./cursor-visibility"); ensureHostCursorVisible(); } catch { /* ignore */ }
+  try { tray?.destroy(); tray = null; } catch { /* ignore */ }
+  try { stopLanServer(); } catch { /* ignore */ }
+  try { stopPower(); } catch { /* ignore */ }
+  console.log("[shutdown] hard exit -", reason);
+  app.exit(0);
 }
 
 // ------------------------------------------------------------- video handler --
@@ -328,7 +338,7 @@ function registerIpc() {
     await clipboard.writeText(String(text ?? ""));
   });
 
-  ipcMain.handle("agent:quit", () => app.quit());
+  ipcMain.handle("agent:quit", () => hardShutdown("agent:quit"));
 
   ipcMain.handle("agent:status", (_e, payload: unknown) => {
     const p = payload as { text?: string; tone?: string };
@@ -395,7 +405,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("win:minimize", () => { win?.minimize(); });
-  ipcMain.handle("win:close", () => { win?.hide(); });
+  ipcMain.handle("win:close", () => hardShutdown("close button"));
 
   ipcMain.handle("turn:config", () => {
     try {
@@ -560,24 +570,6 @@ function registerIpc() {
       return { configured: false as const };
     }
   };
-  /** One-time setup link for another device: carries THIS agent's TURN credential in the URL
-   *  fragment (never sent to any server) so the user can enable relay ICE on that browser/phone. */
-  ipcMain.handle("turn:web-link", () => {
-    try {
-      const raw = fs.readFileSync(turnJsonPath(), "utf8");
-      const j = JSON.parse(raw) as { urls?: unknown; username?: unknown; credential?: unknown };
-      const urls = Array.isArray(j?.urls) ? j.urls.filter((u): u is string => typeof u === "string" && u.length > 0) : [];
-      if (urls.length === 0) return { ok: false as const, error: "Remote access is not set up yet." };
-      const payload = Buffer.from(
-        JSON.stringify({ urls: urls.slice(0, 5), username: j.username, credential: j.credential }),
-        "utf8",
-      ).toString("base64url");
-      return { ok: true as const, link: `https://x5coder.github.io/remotex/#turn=${payload}` };
-    } catch {
-      return { ok: false as const, error: "Remote access is not set up yet." };
-    }
-  });
-
   ipcMain.handle("turn:status", () => turnStatus());
 
   ipcMain.handle("turn:setup", async (_e, key: unknown) => {
@@ -631,6 +623,84 @@ function registerIpc() {
     void shell.openExternal(u);
     return { ok: true as const };
   });
+
+  // -------------------------------------------------------- Telegram notify --
+  // Optional: link a Telegram bot once; on EVERY launch a message with the
+  // Device ID + the CURRENT password + timestamp is sent to the chat.
+  // Nothing is sent when unlinked. The token never leaves %APPDATA%/remotex/telegram.json.
+  const telegramJsonPath = () => path.join(app.getPath("userData"), "telegram.json");
+  const readTelegram = (): { token: string; chatId: string } | null => {
+    try {
+      const j = JSON.parse(fs.readFileSync(telegramJsonPath(), "utf8")) as { token?: unknown; chatId?: unknown };
+      if (typeof j?.token === "string" && typeof j?.chatId === "string" && j.token && j.chatId) {
+        return { token: j.token, chatId: j.chatId };
+      }
+    } catch { /* not linked */ }
+    return null;
+  };
+  const maskChatId = (id: string) => (id.length <= 4 ? "••••" : "••••••" + id.slice(-4));
+
+  async function sendTelegram(token: string, chatId: string, text: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+      });
+      const body = (await res.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
+      if (!res.ok || !body?.ok) return { ok: false, error: body?.description ? String(body.description) : `HTTP ${res.status}` };
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  ipcMain.handle("telegram:status", () => {
+    const tg = readTelegram();
+    return tg ? { linked: true as const, chatIdHint: maskChatId(tg.chatId) } : { linked: false as const };
+  });
+
+  ipcMain.handle("telegram:link", async (_e, payload: unknown) => {
+    const p = (payload ?? {}) as { token?: unknown; chatId?: unknown };
+    const token = String(p.token ?? "").trim();
+    const chatId = String(p.chatId ?? "").trim();
+    if (!/^\d{5,16}:[A-Za-z0-9_-]{30,}$/.test(token)) return { ok: false as const, error: "That token does not look like a bot token (format: 123456:AA-...). Get it from @BotFather." };
+    if (!/^(-?\d{5,20}|@[A-Za-z0-9_]{5,32})$/.test(chatId)) return { ok: false as const, error: "That chat ID does not look right (number, or @channelusername). Message the bot once first, then check getUpdates." };
+    // proof: send a real test message — link only persists when Telegram accepts it
+    const test = await sendTelegram(token, chatId, "<b>RemoteX linked</b>\nYou will get this on every launch: your Device ID, the current password, and the launch time.");
+    if (!test.ok) return { ok: false as const, error: `Telegram refused it: ${test.error ?? "unknown error"} — check the token, and that you messaged the bot at least once.` };
+    try {
+      const tmp = telegramJsonPath() + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify({ token, chatId, linkedAt: new Date().toISOString() }), "utf8");
+      fs.renameSync(tmp, telegramJsonPath());
+    } catch {
+      return { ok: false as const, error: "Could not save telegram.json — check disk permissions." };
+    }
+    return { ok: true as const, chatIdHint: maskChatId(chatId) };
+  });
+
+  ipcMain.handle("telegram:unlink", () => {
+    try { fs.unlinkSync(telegramJsonPath()); } catch { /* absent = already unlinked */ }
+    return { ok: true as const };
+  });
+
+  /** fire-and-forget launch ping — ID + password + timestamp, nothing else */
+  const notifyTelegramOnLaunch = () => {
+    const tg = readTelegram();
+    if (!tg) return;
+    const stamp = new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const text = [
+      "<b>RemoteX started</b>",
+      `Device ID: <code>${identity.roomId}</code>`,
+      `Password: <code>${password}</code>`,
+      `Launched: ${stamp}`,
+    ].join("\n");
+    void sendTelegram(tg.token, tg.chatId, text).then((r) => {
+      if (r.ok) console.log("[telegram] launch notification sent");
+      else console.warn("[telegram] launch notification failed:", r.error);
+    });
+  };
+  setTimeout(notifyTelegramOnLaunch, 2_000); // let the network settle first
 
 }
 

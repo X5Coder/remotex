@@ -251,7 +251,7 @@ export class Session implements CommandSink {
     });
 
     room.onPeerLeave(({ peerId }) => {
-        // agent vanished WITHOUT a clean bye — no auto re-dial (that was the connect/disconnect churn).
+        // agent vanished WITHOUT a clean bye - no auto re-dial (that was the connect/disconnect churn).
         // Show a clear state instead; the user reconnects manually.
         if (peerId === this.peerId) this.handleClose("Connection lost. Please reconnect.");
     });
@@ -520,3 +520,4 @@ export class Session implements CommandSink {
 export function helloOk(hello: HelloMessage): boolean {
   return !isVersionMismatch(hello) && hello.version === PROTOCOL_VERSION;
 }
+

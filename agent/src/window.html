@@ -2,133 +2,157 @@
 <html lang="en" dir="ltr">
 <head>
 <meta charset="UTF-8" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'">
 <title>RemoteX</title>
 <style>
-  :root{
-    --bg:#eceff3;--ink:#1f2733;--muted:#8b95a5;--line:#d3d9e2;--accent:#5b6676;
-    --ok:#3a7d44;--err:#a63a3a;--warn:#b8913a;
-  }
-  *{box-sizing:border-box;margin:0;padding:0;-webkit-user-select:none;user-select:none}
-  [hidden]{display:none !important}
-  html,body{height:100%}
-  body{
-    background:var(--bg) linear-gradient(170deg,#ffffff 0%,#eef0f4 45%,#d9dde4 100%);
-    color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-    overflow:hidden;position:relative
-  }
+@font-face{font-family:'Sora Variable';font-style:normal;font-weight:100 900;font-display:swap;src:url('fonts/sora-latin-wght-normal.woff2') format('woff2')}
+@font-face{font-family:'Sora Variable';font-style:normal;font-weight:100 900;font-display:swap;src:url('fonts/sora-latin-ext-wght-normal.woff2') format('woff2');unicode-range:U+0100-017F}
 
-  /* ---------- title bar ---------- */
-  .titlebar{height:44px;display:flex;align-items:center;gap:8px;padding:0 6px 0 14px;
-    -webkit-app-region:drag;border-bottom:1px solid rgba(211,217,226,.6)}
-  .titlebar img{width:19px;height:19px;-webkit-app-region:no-drag}
-  .titlebar .tbTitle{font-size:12.5px;font-weight:700;letter-spacing:.4px;color:#1f2733;flex:1;white-space:nowrap}
-  .tbBtn{-webkit-app-region:no-drag;width:38px;height:32px;border:0;background:transparent;border-radius:8px;
-    display:flex;align-items:center;justify-content:center;cursor:pointer;color:#5b6676;touch-action:manipulation}
-  .tbBtn:hover{background:rgba(31,39,51,.07);color:#1f2733}
-  .tbBtn.close:hover{background:#a63a3a;color:#fff}
-  .tbBtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  .tbBtn svg{width:13px;height:13px;stroke-width:2}
+:root{
+  --bg:#f6f6f7; --card:#ffffff; --ink:#0f1115; --muted:#6b7280;
+  --line:#e7e5e4; --accent:#b30000; --accent-ink:#8f0000; --accent-soft:rgba(179,0,0,.09);
+  --ok:#3a7d44; --err:#b30000; --warn:#b8913a;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-user-select:none;user-select:none}
+[hidden]{display:none !important}
+html,body{height:100%}
+body{
+  background:var(--bg);
+  background-image:radial-gradient(120% 90% at 50% -30%, rgba(179,0,0,.06), transparent 55%);
+  color:var(--ink);font-family:'Sora Variable',system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  overflow:hidden;position:relative
+}
 
-  /* ---------- main layout ---------- */
-  .wrap{display:flex;flex-direction:column;gap:12px;padding:14px 16px 12px;height:calc(100% - 44px);overflow-y:auto;overflow-x:hidden}
+/* ---------- title bar ---------- */
+.titlebar{height:44px;display:flex;align-items:center;gap:8px;padding:0 6px 0 14px;
+  -webkit-app-region:drag;border-bottom:1px solid var(--line);background:var(--card)}
+.titlebar img{width:19px;height:19px;-webkit-app-region:no-drag}
+.titlebar .tbTitle{font-size:12.5px;font-weight:800;letter-spacing:.3px;color:var(--ink);flex:1;white-space:nowrap}
+.tbBtn{-webkit-app-region:no-drag;width:38px;height:32px;border:0;background:transparent;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);touch-action:manipulation}
+.tbBtn:hover{background:var(--accent-soft);color:var(--accent)}
+.tbBtn.close:hover{background:var(--accent);color:#fff}
+.tbBtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tbBtn svg{width:13px;height:13px;stroke-width:2}
 
-  .card{background:linear-gradient(165deg,#fbfcfd 0%,#e9ecf1 100%);border:1px solid var(--line);flex:none;
-    border-radius:18px;padding:13px 14px;box-shadow:0 10px 22px -16px rgba(60,70,90,.4),inset 0 1px 0 #fff}
-  .label{font-size:9.5px;letter-spacing:1.6px;color:var(--accent);font-weight:800;text-transform:uppercase;margin-bottom:6px}
+/* ---------- layout ---------- */
+.wrap{display:flex;flex-direction:column;gap:12px;padding:14px 16px 12px;height:calc(100% - 44px);overflow-y:auto;overflow-x:hidden;
+  animation:wrapIn .4s cubic-bezier(.32,.72,.25,1) both}
+@keyframes wrapIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 
-  /* ---------- status card ---------- */
-  .statusRow{display:flex;align-items:center;gap:10px;font-size:13px;color:#2e2a22;line-height:1.45;min-height:22px}
-  .dot{width:10px;height:10px;border-radius:50%;background:#c3cad4;flex:none}
-  .dot.waiting{background:var(--warn);animation:pulse 1.4s ease-in-out infinite alternate}
-  .dot.connected{background:var(--ok)}
-  .dot.error{background:var(--err)}
-  @keyframes pulse{from{opacity:.4}to{opacity:1}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:13px 14px;
+  box-shadow:0 10px 26px -22px rgba(15,17,21,.35)}
+.label{font-size:9.5px;letter-spacing:1.6px;color:var(--muted);font-weight:800;text-transform:uppercase;margin-bottom:6px}
 
-  /* ---------- identity card (Device ID + Password) ---------- */
-  .identity{display:flex;flex-direction:column}
-  .field + .field{margin-top:11px;padding-top:11px;border-top:1px solid #e2e6ec}
-  .row{display:flex;align-items:center;gap:8px}
-  .monoVal{flex:1;min-width:0;height:46px;display:flex;align-items:center;justify-content:center;
-    background:#fff;border:1px solid var(--line);border-radius:13px;
-    font-family:"Cascadia Mono","Consolas","SF Mono",Menlo,monospace;font-weight:700;font-size:19px;
-    letter-spacing:3px;color:#1f2733;padding:0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-    -webkit-user-select:text;user-select:text}
-  .monoVal.pass{font-size:17px;letter-spacing:5px;color:#2b3340}
+/* ---------- status card ---------- */
+.statusRow{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink);line-height:1.45;min-height:22px;font-weight:600}
+.dot{width:10px;height:10px;border-radius:50%;background:#c9c9cd;flex:none}
+.dot.waiting{background:var(--warn);animation:pulse 1.4s ease-in-out infinite alternate}
+.dot.connected{background:var(--ok)}
+.dot.error{background:var(--err)}
+@keyframes pulse{from{opacity:.4}to{opacity:1}}
+.renewLine{font-size:9.5px;color:var(--muted);line-height:1.5;margin-top:7px;letter-spacing:.3px}
+.renewLine b{color:var(--accent);font-variant-numeric:tabular-nums;font-weight:700}
 
-  .iconBtn{flex:none;width:46px;height:46px;border-radius:13px;border:1px solid var(--line);
-    background:linear-gradient(165deg,#ffffff,#eef0f4);color:#3d4a5c;cursor:pointer;
-    display:flex;align-items:center;justify-content:center;transition:border-color .15s,color .15s,transform .15s;touch-action:manipulation}
-  .iconBtn:hover{border-color:var(--accent);color:var(--accent)}
-  .iconBtn:active{transform:scale(.94)}
-  .iconBtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  .iconBtn.ok{border-color:var(--ok);color:var(--ok)}
-  .iconBtn svg{width:18px;height:18px}
+/* ---------- device card ---------- */
+.identity{display:flex;flex-direction:column}
+.field + .field{margin-top:11px;padding-top:11px;border-top:1px solid #efedea}
+.row{display:flex;align-items:center;gap:8px}
+.monoVal{flex:1;min-width:0;height:44px;display:flex;align-items:center;justify-content:center;
+  background:var(--bg);border:1.5px solid var(--line);border-radius:13px;
+  font-family:"Cascadia Mono","Consolas","SF Mono",monospace;font-weight:700;font-size:18px;
+  letter-spacing:3px;color:var(--ink);padding:0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  -webkit-user-select:text;user-select:text}
+.monoVal.pass{font-size:16px;letter-spacing:5px;color:#2b3340}
+.iconBtn{flex:none;width:44px;height:44px;border-radius:13px;border:1.5px solid var(--line);background:var(--bg);
+  color:#3d4a5c;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s,color .15s,transform .15s,background .15s}
+.iconBtn:hover{border-color:var(--accent);color:var(--accent)}
+.iconBtn:active{transform:scale(.93)}
+.iconBtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.iconBtn.ok{border-color:var(--ok);color:var(--ok)}
+.iconBtn svg{width:17px;height:17px}
 
-  .renewLine{font-size:9.5px;color:var(--muted);line-height:1.5;margin-top:7px;letter-spacing:.3px}
-  .renewLine b{color:#5b6676;font-variant-numeric:tabular-nums;font-weight:700}
+/* ---------- remote access card ---------- */
+.turnRow{display:flex;align-items:center;gap:10px;min-height:20px}
+.turnDot{width:10px;height:10px;border-radius:50%;background:#c9c9cd;flex:none}
+.turnDot.ok{background:var(--ok)}
+.turnDot.warn{background:var(--warn)}
+.turnDot.busy{background:var(--warn);animation:pulse 1.2s ease-in-out infinite alternate}
+.turnStatus{font-size:11.5px;color:var(--ink);line-height:1.45;flex:1;min-width:0;overflow-wrap:anywhere}
+.turnActions{margin-top:10px}
+.turnBtnPrimary{width:100%;height:42px;border-radius:13px;border:0;cursor:pointer;font:inherit;font-size:12.5px;font-weight:800;
+  color:#fff;background:var(--accent);transition:transform .15s,filter .15s;touch-action:manipulation}
+.turnBtnPrimary:hover{filter:brightness(1.12)}
+.turnBtnPrimary:active{transform:scale(.98)}
+.turnBtnPrimary:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 
-  /* ---------- remote access card ---------- */
-  .turnRow{display:flex;align-items:center;gap:10px;min-height:20px}
-  .turnDot{width:10px;height:10px;border-radius:50%;background:#c3cad4;flex:none}
-  .turnDot.ok{background:var(--ok)}
-  .turnDot.warn{background:var(--warn)}
-  .turnDot.busy{background:var(--warn);animation:pulse 1.2s ease-in-out infinite alternate}
-  .turnStatus{font-size:11.5px;color:#2e2a22;line-height:1.45;flex:1;min-width:0;overflow-wrap:anywhere}
-  .turnActions{margin-top:10px}
-  .turnBtnPrimary{width:100%;height:42px;border-radius:13px;border:0;cursor:pointer;font:inherit;font-size:12.5px;font-weight:800;letter-spacing:.2px;
-    color:#fff;background:linear-gradient(165deg,#3a7d44,#2b5b33);transition:transform .15s,filter .15s;touch-action:manipulation}
-  .turnBtnPrimary:hover{filter:brightness(1.08)}
-  .turnBtnPrimary:active{transform:scale(.98)}
-  .turnBtnPrimary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  .webLinkBtn{margin-top:10px;border:0;background:transparent;color:var(--accent);cursor:pointer;font:inherit;
-    font-size:11.5px;font-weight:700;padding:6px 2px;display:flex;align-items:center;gap:7px;text-align:left;
-    border-radius:8px;transition:color .15s;touch-action:manipulation}
-  .webLinkBtn:hover{color:#1f2733}
-  .webLinkBtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  .webLinkBtn svg{width:14px;height:14px;flex:none}
-  .webLinkBtn.ok{color:var(--ok)}
+/* ---------- telegram card ---------- */
+.tgRow{display:flex;align-items:center;gap:10px;min-height:20px}
+.tgDot{width:10px;height:10px;border-radius:50%;background:#c9c9cd;flex:none}
+.tgDot.ok{background:var(--ok)}
+.tgDot.busy{background:var(--warn);animation:pulse 1.2s ease-in-out infinite alternate}
+.tgDot.err{background:var(--err)}
+.tgStatus{font-size:11.5px;color:var(--ink);line-height:1.45;flex:1;min-width:0}
+.tgHint{font-size:9.5px;color:var(--muted);line-height:1.55;margin:6px 2px 10px}
+.tgHint code{background:#f0eeeb;border:1px solid var(--line);border-radius:6px;padding:1px 5px;font-size:9px}
+.tgInput{width:100%;height:42px;border:1.5px solid var(--line);border-radius:12px;background:var(--bg);
+  font:inherit;font-size:12px;font-weight:500;padding:0 12px;color:var(--ink);transition:border-color .15s, box-shadow .15s;
+  -webkit-user-select:text;user-select:text}
+.tgInput::placeholder{color:#a8adb6;font-weight:450;letter-spacing:0}
+.tgInput:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.tgInput.token{letter-spacing:1px}
+.tgField + .tgField{margin-top:8px}
+.tgActions{display:flex;gap:8px;margin-top:10px}
+.tgBtnPrimary{flex:1;height:40px;border-radius:12px;border:0;cursor:pointer;font:inherit;font-size:12px;font-weight:800;
+  color:#fff;background:var(--accent);transition:filter .15s, transform .15s}
+.tgBtnPrimary:hover:not(:disabled){filter:brightness(1.12)}
+.tgBtnPrimary:disabled{opacity:.5;cursor:default}
+.tgBtnGhost{flex:none;height:40px;padding:0 16px;border-radius:12px;border:1.5px solid var(--line);background:var(--card);
+  color:var(--muted);cursor:pointer;font:inherit;font-size:11.5px;font-weight:700;transition:color .15s,border-color .15s}
+.tgBtnGhost:hover{color:var(--err);border-color:var(--err)}
+.tgError{font-size:10px;color:var(--err);margin-top:8px;line-height:1.45;overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
 
-  /* ---------- terminate ---------- */
-  .btnTerminate{height:50px;flex:none;border-radius:13px;cursor:pointer;font:inherit;font-size:13.5px;font-weight:800;letter-spacing:.6px;
-    color:var(--err);background:#fff;border:1px solid #e0c4c4;transition:border-color .15s,background .15s,transform .15s;touch-action:manipulation}
-  .btnTerminate:hover:not(:disabled){background:#fdf4f4;border-color:var(--err)}
-  .btnTerminate:active:not(:disabled){transform:scale(.98)}
-  .btnTerminate:disabled{opacity:.4;cursor:default}
-  .btnTerminate:focus-visible{outline:2px solid var(--err);outline-offset:2px}
+/* ---------- terminate ---------- */
+.btnTerminate{height:50px;flex:none;border-radius:14px;cursor:pointer;font:inherit;font-size:13px;font-weight:800;letter-spacing:.5px;
+  color:#fff;background:var(--accent);border:1px solid var(--accent);transition:filter .15s, transform .15s, background .15s;touch-action:manipulation}
+.btnTerminate:hover:not(:disabled){filter:brightness(1.12)}
+.btnTerminate:active:not(:disabled){transform:scale(.98)}
+.btnTerminate:disabled{opacity:.4;cursor:default}
+.btnTerminate:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 
-  .verTag{margin:0;flex:none;text-align:center;font-size:9.5px;color:var(--muted);letter-spacing:1px;padding-top:2px}
+.verTag{margin:0;flex:none;text-align:center;font-size:9.5px;color:var(--muted);letter-spacing:1px;padding-top:2px}
 
-  /* ---------- full-window loading template ---------- */
-  .loadingView{position:absolute;top:44px;left:0;right:0;bottom:0;z-index:5;
-    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;
-    background:var(--bg) linear-gradient(170deg,#ffffff 0%,#eef0f4 45%,#d9dde4 100%);padding:24px 28px;text-align:center}
-  .loadingView img{width:64px;height:64px;margin-bottom:14px}
-  .loadingTitle{font-size:19px;font-weight:800;letter-spacing:.3px;color:#1f2733}
-  .loadingSub{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);margin:4px 0 22px}
-  .spinner{width:44px;height:44px;border-radius:50%;border:4px solid #dfe5ec;border-top-color:var(--accent);
-    animation:spin .9s linear infinite;margin-bottom:18px}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .loadingText{font-size:13px;color:#2e2a22;line-height:1.5;max-width:320px;overflow-wrap:anywhere;min-height:20px}
-  .loadingStage{font-size:10px;color:var(--muted);line-height:1.5;margin-top:6px;min-height:15px}
-  .loadingFoot{margin-top:22px;display:flex;flex-direction:column;align-items:center;gap:10px}
-  .btnPrimary{height:44px;padding:0 30px;border-radius:13px;border:0;cursor:pointer;font:inherit;font-size:13px;font-weight:800;letter-spacing:.2px;
-    color:#fff;background:linear-gradient(165deg,#3a7d44,#2b5b33);transition:transform .15s,filter .15s;touch-action:manipulation}
-  .btnPrimary:hover{filter:brightness(1.08)}
-  .btnPrimary:active{transform:scale(.98)}
-  .btnGhost{height:38px;padding:0 18px;border-radius:11px;border:0;background:transparent;cursor:pointer;font:inherit;font-size:11.5px;
-    color:var(--accent);text-decoration:underline;touch-action:manipulation}
-  .btnGhost:hover{color:#1f2733}
-  .btnCancel{height:34px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:#fff;cursor:pointer;
-    font:inherit;font-size:11px;color:#5b6676;touch-action:manipulation}
-  .btnCancel:hover{border-color:var(--accent);color:var(--accent)}
-  .btnPrimary:focus-visible,.btnGhost:focus-visible,.btnCancel:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  .errorBox{margin-bottom:18px;max-width:340px;background:#fdf4f4;border:1px solid #e0c4c4;border-radius:13px;padding:12px 14px;
-    font-size:11.5px;color:#7a2f2f;line-height:1.55;text-align:left;overflow-wrap:anywhere;max-height:180px;overflow-y:auto;-webkit-user-select:text;user-select:text}
+/* ---------- full-window loading template ---------- */
+.loadingView{position:absolute;top:44px;left:0;right:0;bottom:0;z-index:5;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:var(--bg);padding:24px 28px;text-align:center}
+.loadingView img{width:64px;height:64px;margin-bottom:14px}
+.loadingTitle{font-size:22px;font-weight:800;letter-spacing:-.5px;color:var(--ink)}
+.loadingTitle b{color:var(--accent)}
+.loadingSub{font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);margin:5px 0 22px}
+.spinner{width:44px;height:44px;border-radius:50%;border:4px solid #e4e2df;border-top-color:var(--accent);
+  animation:spin .9s linear infinite;margin-bottom:18px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loadingText{font-size:13px;color:var(--ink);line-height:1.5;max-width:320px;overflow-wrap:anywhere;min-height:20px;font-weight:500}
+.loadingStage{font-size:10px;color:var(--muted);line-height:1.5;margin-top:6px;min-height:15px}
+.loadingFoot{margin-top:22px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.btnPrimary{height:44px;padding:0 30px;border-radius:13px;border:0;cursor:pointer;font:inherit;font-size:13px;font-weight:800;
+  color:#fff;background:var(--accent);touch-action:manipulation}
+.btnPrimary:hover{filter:brightness(1.12)}
+.btnGhost{height:38px;padding:0 18px;border:0;background:transparent;cursor:pointer;font:inherit;font-size:11.5px;
+  color:var(--muted);text-decoration:underline}
+.btnGhost:hover{color:var(--ink)}
+.btnCancel{height:34px;padding:0 16px;border-radius:10px;border:1.5px solid var(--line);background:var(--card);cursor:pointer;
+  font:inherit;font-size:11px;color:var(--muted)}
+.btnCancel:hover{border-color:var(--accent);color:var(--accent)}
+.btnPrimary:focus-visible,.btnGhost:focus-visible,.btnCancel:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.errorBox{margin-bottom:18px;max-width:340px;background:#fdf0f0;border:1px solid #eccaca;border-radius:13px;padding:12px 14px;
+  font-size:11.5px;color:#7a2f2f;line-height:1.55;text-align:left;overflow-wrap:anywhere;max-height:180px;overflow-y:auto;
+  -webkit-user-select:text;user-select:text}
 
-  @media (prefers-reduced-motion: reduce){
-    *{animation-duration:.01ms !important;transition-duration:.01ms !important}
-  }
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:.01ms !important;transition-duration:.01ms !important}
+}
 </style>
 </head>
 <body>
@@ -138,7 +162,7 @@
     <button class="tbBtn" id="minBtn" aria-label="Minimize" title="Minimize">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M6 12h12"/></svg>
     </button>
-    <button class="tbBtn close" id="closeBtn" aria-label="Close" title="Close">
+    <button class="tbBtn close" id="closeBtn" aria-label="Close" title="Close RemoteX">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
   </div>
@@ -146,12 +170,12 @@
   <!-- Full-window loading template — shown whenever there is no saved TURN credential -->
   <div class="loadingView" id="loadingView" role="status" aria-live="polite">
     <img src="icon.png" alt="">
-    <div class="loadingTitle">RemoteX</div>
+    <div class="loadingTitle">Remote<b>X</b></div>
     <div class="loadingSub">Any network · one click</div>
 
     <div class="spinner" id="loadingSpinner" aria-hidden="true"></div>
     <div class="errorBox" id="loadingError" hidden></div>
-    <div class="loadingText" id="loadingText">Starting automatic setup…</div>
+    <div class="loadingText" id="loadingText">Starting automatic setup...</div>
     <div class="loadingStage" id="loadingStage">This takes about two minutes. No input needed.</div>
 
     <div class="loadingFoot">
@@ -166,48 +190,65 @@
     <!-- Status -->
     <div class="card">
       <div class="label">Status</div>
-      <div class="statusRow"><span class="dot waiting" id="dot"></span><span id="statusText">Waiting for a connection…</span></div>
-      <div class="renewLine">Auto-renew in <b id="renewClock">--:--:--</b> · password rotates automatically</div>
+      <div class="statusRow"><span class="dot waiting" id="dot"></span><span id="statusText">Waiting for a connection...</span></div>
+      <div class="renewLine">Auto-renew in <b id="renewClock">05:00:00</b> · password rotates automatically</div>
     </div>
 
-    <!-- This device: Device ID + Password in one organized card -->
+    <!-- This device: Device ID + Password -->
     <div class="card identity">
       <div class="field">
         <div class="label">Device ID</div>
         <div class="row">
-          <div class="monoVal" id="roomId">——</div>
+          <div class="monoVal" id="roomId">------</div>
           <button class="iconBtn" id="copyId" title="Copy Device ID" aria-label="Copy Device ID"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
         </div>
       </div>
       <div class="field">
         <div class="label">Password · new every launch</div>
         <div class="row">
-          <div class="monoVal pass" id="password">——————</div>
+          <div class="monoVal pass" id="password">------</div>
           <button class="iconBtn" id="newPasswordBtn" title="New password" aria-label="New password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
           <button class="iconBtn" id="copyPass" title="Copy password" aria-label="Copy password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
         </div>
       </div>
     </div>
 
-    <!-- Remote access (slim — credential is created automatically on first run) -->
+    <!-- Remote access -->
     <div class="card" id="turnCard">
       <div class="label">Remote Access · Any Network</div>
       <div class="turnRow">
         <span class="turnDot ok" id="turnDot"></span>
-        <span class="turnStatus" id="turnStatus">Remote access ready — works from any network.</span>
+        <span class="turnStatus" id="turnStatus">Remote access ready - works from any network.</span>
       </div>
       <div class="turnActions" id="turnActions" hidden>
-        <button class="turnBtnPrimary" id="turnSetupBtn">Set up remote access — free</button>
+        <button class="turnBtnPrimary" id="turnSetupBtn">Set up remote access - free</button>
       </div>
-      <button class="webLinkBtn" id="webLinkBtn" hidden>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l3.54-3.54a5 5 0 0 0-7.07-7.07L12 4"/><path d="M14 11a5 5 0 0 0-7.07 0L3.4 14.54a5 5 0 0 0 7.07 7.07L12 20"/></svg>
-        <span id="webLinkLabel">Copy setup link for other networks</span>
-      </button>
     </div>
 
-    <button class="btnTerminate" id="terminateBtn" disabled>Terminate</button>
+    <!-- Telegram notifications -->
+    <div class="card" id="tgCard">
+      <div class="label">Telegram · Launch Notifications</div>
+      <div class="tgRow">
+        <span class="tgDot" id="tgDot"></span>
+        <span class="tgStatus" id="tgStatus">Not linked</span>
+      </div>
+      <p class="tgHint">On every launch, RemoteX sends your Telegram bot the <b>Device ID</b>, the <b>password</b> and the <b>launch time</b>. Nothing else. Create a bot via <code>@BotFather</code>, then message it once from your account.</p>
+      <div class="tgField">
+        <input class="tgInput token" id="tgToken" type="password" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Bot token — 123456:AA-xxxxxxxxxxxxxxxxxxxxxxxxxx" aria-label="Bot token">
+      </div>
+      <div class="tgField">
+        <input class="tgInput" id="tgChatId" type="text" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Chat ID — e.g. 123456789 or @yourchannel" aria-label="Chat ID">
+      </div>
+      <div class="tgError" id="tgError" hidden></div>
+      <div class="tgActions">
+        <button class="tgBtnPrimary" id="tgLinkBtn">Link Telegram</button>
+        <button class="tgBtnGhost" id="tgUnlinkBtn" hidden>Unlink</button>
+      </div>
+    </div>
 
-    <p class="verTag">RemoteX v6.0.0</p>
+    <button class="btnTerminate" id="terminateBtn" disabled>Terminate User</button>
+
+    <p class="verTag">RemoteX v6.1.2</p>
 
   </div>
 
@@ -220,7 +261,7 @@ if (!r) {
   document.querySelector('.loadingView').hidden = true;
   const main = $('mainView');
   main.hidden = false;
-  $('statusText').textContent = 'Preload failed — reinstall RemoteX.';
+  $('statusText').textContent = 'Preload failed - reinstall RemoteX.';
   $('dot').className = 'dot error';
 } else {
   minBtn.addEventListener('click', () => r.invoke('win:minimize'));
@@ -235,7 +276,6 @@ if (!r) {
         loadingError = $('loadingError'), loadingCancelBtn = $('loadingCancelBtn'),
         loadingRetryBtn = $('loadingRetryBtn'), loadingContinueBtn = $('loadingContinueBtn');
   const turnDot = $('turnDot'), turnStatus = $('turnStatus'), turnActions = $('turnActions'), turnSetupBtn = $('turnSetupBtn');
-  const webLinkBtn = $('webLinkBtn'), webLinkLabel = $('webLinkLabel');
 
   let turnBusy = false;
 
@@ -245,8 +285,8 @@ if (!r) {
       $('roomId').textContent = id.roomId;
       $('password').textContent = id.password;
     } catch {
-      $('roomId').textContent = '——';
-      $('password').textContent = '——————';
+      $('roomId').textContent = '------';
+      $('password').textContent = '------';
     }
   }
 
@@ -260,25 +300,24 @@ if (!r) {
     mainView.hidden = false;
     renderTurnCard(configured);
     loadIdentity();
+    loadTelegramStatus();
   }
 
   function renderTurnCard(configured) {
     if (configured) {
       turnDot.className = 'turnDot ok';
-      turnStatus.textContent = 'Remote access ready — works from any network.';
+      turnStatus.textContent = 'Remote access ready - works from any network.';
       turnActions.hidden = true;
-      webLinkBtn.hidden = false;
     } else {
       turnDot.className = 'turnDot warn';
-      turnStatus.textContent = 'Not set up yet — remote access from other networks is unavailable.';
+      turnStatus.textContent = 'Not set up yet - remote access from other networks is unavailable.';
       turnActions.hidden = false;
-      webLinkBtn.hidden = true;
     }
   }
 
   function setLoadingRunning(message, stage) {
     loadingSpinner.hidden = false;
-    loadingText.textContent = message || 'Setting up remote access…';
+    loadingText.textContent = message || 'Setting up remote access...';
     loadingStage.textContent = stage ?? 'This takes about two minutes. No input needed.';
     loadingError.hidden = true;
     loadingCancelBtn.hidden = false;
@@ -290,7 +329,7 @@ if (!r) {
     loadingSpinner.hidden = true;
     loadingError.hidden = false;
     const text = String(message || 'Automatic setup failed.');
-    loadingError.textContent = text.length > 600 ? text.slice(0, 597) + '…' : text;
+    loadingError.textContent = text.length > 600 ? text.slice(0, 597) + '...' : text;
     loadingText.textContent = 'Setup did not finish.';
     loadingStage.textContent = 'Your computer works on the local network either way.';
     loadingCancelBtn.hidden = true;
@@ -302,9 +341,7 @@ if (!r) {
     if (turnBusy) return;
     const attempts = options && typeof options.attempts === 'number' ? options.attempts : 1;
     turnBusy = true;
-    setLoadingRunning('Starting automatic setup…');
-
-    let cancelled = false;
+    setLoadingRunning('Starting automatic setup...');
     try {
       const res = await r.invoke('turn:auto-setup', { attempts });
       if (res && res.ok) {
@@ -315,23 +352,21 @@ if (!r) {
         return;
       }
       if (res && res.cancelled) {
-        cancelled = true;
         setLoadingFailure('Setup was cancelled.');
       } else {
-        const detail = (res && res.error) || 'Automatic setup failed — check your internet connection.';
+        const detail = (res && res.error) || 'Automatic setup failed - check your internet connection.';
         setLoadingFailure(res && res.logDir ? detail + '\nDiagnostics: ' + res.logDir : detail);
       }
     } catch (err) {
-      setLoadingFailure('Automatic setup failed — ' + (err && err.message ? err.message : 'check your internet connection.'));
+      setLoadingFailure('Automatic setup failed - ' + (err && err.message ? err.message : 'check your internet connection.'));
     } finally {
       turnBusy = false;
-      if (cancelled) { /* failure panel already shown */ }
     }
   }
 
   loadingCancelBtn.addEventListener('click', async () => {
     loadingCancelBtn.hidden = true;
-    loadingText.textContent = 'Cancelling…';
+    loadingText.textContent = 'Cancelling...';
     loadingStage.textContent = 'The browser will close in a moment.';
     try { await r.invoke('turn:auto-cancel'); } catch { /* not running */ }
   });
@@ -339,33 +374,9 @@ if (!r) {
   loadingContinueBtn.addEventListener('click', () => showMain(false));
   turnSetupBtn.addEventListener('click', () => { showLoading(); void startSetup({ attempts: 1 }); });
 
-  /* one-time setup link for another device (phone / other PC) */
-  webLinkBtn.addEventListener('click', async () => {
-    const original = webLinkLabel.textContent;
-    webLinkBtn.disabled = true;
-    try {
-      const res = await r.invoke('turn:web-link');
-      if (res && res.ok && res.link) {
-        await r.invoke('agent:copy', res.link);
-        webLinkBtn.classList.add('ok');
-        webLinkLabel.textContent = 'Copied — open it once on your other device';
-      } else {
-        webLinkLabel.textContent = (res && res.error) || 'Remote access is not set up yet';
-      }
-    } catch {
-      webLinkLabel.textContent = 'Could not create the setup link';
-    } finally {
-      window.setTimeout(() => {
-        webLinkBtn.classList.remove('ok');
-        webLinkLabel.textContent = original;
-        webLinkBtn.disabled = false;
-      }, 2600);
-    }
-  });
-
   r.on('turn:progress', (p) => {
     if (!turnBusy || !p) return;
-    loadingText.textContent = p.message || 'Working…';
+    loadingText.textContent = p.message || 'Working...';
     loadingStage.textContent = p.maxAttempts > 1 ? ('Attempt ' + p.attempt + ' of ' + p.maxAttempts) : 'No input needed.';
   });
 
@@ -426,7 +437,7 @@ if (!r) {
     $('terminateBtn').disabled = p.tone !== 'connected';
   });
 
-  /* 5-hour auto-renew countdown — pushes a new password into the window when it fires */
+  /* 5-hour auto-renew countdown */
   const renewClock = $('renewClock');
   function fmtCountdown(ms) {
     const total = Math.max(0, Math.floor(ms / 1000));
@@ -441,6 +452,74 @@ if (!r) {
   r.on('session:renewed', (p) => {
     if (p && p.password) $('password').textContent = p.password;
     renewClock.textContent = '05:00:00';
+  });
+
+  /* ================= Telegram integration ================= */
+  const tgDot = $('tgDot'), tgStatus = $('tgStatus'), tgToken = $('tgToken'), tgChatId = $('tgChatId'),
+        tgError = $('tgError'), tgLinkBtn = $('tgLinkBtn'), tgUnlinkBtn = $('tgUnlinkBtn');
+
+  let tgLinked = false;
+
+  function setTelegramState(linked, hint, errorText) {
+    tgLinked = linked;
+    tgDot.className = 'tgDot' + (linked ? ' ok' : (errorText ? ' err' : ''));
+    tgStatus.textContent = linked
+      ? ('Linked - every launch sends your bot the ID + password (' + (hint || 'chat linked') + ')')
+      : 'Not linked - nothing will be sent';
+    tgToken.disabled = false;
+    tgChatId.disabled = linked;
+    tgToken.value = linked ? '' : tgToken.value;
+    tgToken.placeholder = linked ? '••••••••••••••••••••' : 'Bot token — 123456:AA-xxxxxxxxxxxxxxxxxxxxxxxxxx';
+    tgLinkBtn.hidden = linked;
+    tgUnlinkBtn.hidden = !linked;
+    tgError.hidden = !errorText;
+    tgError.textContent = errorText || '';
+  }
+
+  async function loadTelegramStatus() {
+    try {
+      const st = await r.invoke('telegram:status');
+      if (st && st.linked) setTelegramState(true, st.chatIdHint || '');
+      else setTelegramState(false, '');
+    } catch {
+      setTelegramState(false, '');
+    }
+  }
+
+  tgLinkBtn.addEventListener('click', async () => {
+    const token = tgToken.value.trim();
+    const chatId = tgChatId.value.trim();
+    tgLinkBtn.disabled = true;
+    tgDot.className = 'tgDot busy';
+    tgStatus.textContent = 'Sending a test message...';
+    tgError.hidden = true;
+    try {
+      const res = await r.invoke('telegram:link', { token, chatId });
+      if (res && res.ok) {
+        setTelegramState(true, res.chatIdHint || '');
+      } else {
+        tgDot.className = 'tgDot err';
+        tgStatus.textContent = 'Not linked';
+        tgError.hidden = false;
+        tgError.textContent = (res && res.error) || 'Could not reach Telegram - check the token and that you messaged the bot first.';
+      }
+    } catch (err) {
+      tgDot.className = 'tgDot err';
+      tgStatus.textContent = 'Not linked';
+      tgError.hidden = false;
+      tgError.textContent = 'Could not reach Telegram - ' + (err && err.message ? err.message : 'network error');
+    } finally {
+      tgLinkBtn.disabled = false;
+    }
+  });
+
+  tgUnlinkBtn.addEventListener('click', async () => {
+    tgUnlinkBtn.disabled = true;
+    await r.invoke('telegram:unlink');
+    tgToken.value = '';
+    tgChatId.value = '';
+    setTelegramState(false, '');
+    tgUnlinkBtn.disabled = false;
   });
 }
 </script>
