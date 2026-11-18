@@ -207,7 +207,7 @@ class HiddenAgent {
       this.peerId = peerId;
       this.lastRxAt = Date.now();
       log("peer joined", peerId);
-      void this.openFastLine(peerId);
+      void this.openFastLines(peerId);
       void room.addStream(stream); // idempotent - make sure the seat holder gets it
       void this.tuneSender(peerId);
       void this.sendHello();
@@ -302,46 +302,54 @@ class HiddenAgent {
   }
 
   /**
-   * Unreliable negotiated channel (id 2, "fastline") - carries mouse moves and cursor
-   * beacons FIRST-CLASS: drops (not stalls) when lossy; the receiver only needs the
-   * latest absolute position. Complements the ordered trystero channel, which keeps
-   * the reliable fallback (clicks/keys ride the JSON ctl channel either way).
+   * Redundant unreliable lanes (ids 2-11, maxRetransmits: 0, unordered) - EVERY fast
+   * frame rides all of them; the far end dedups by seq, so the first copy to land wins
+   * and the rest are dropped. Loss on any single lane is invisible to the user.
+   * Complements the ordered trystero channel, which keeps the reliable fallback
+   * (clicks/keys ride the JSON ctl channel either way).
    */
-  private fastline: RTCDataChannel | null = null;
+  private static readonly LANE_IDS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+  private fastlines: RTCDataChannel[] = [];
 
-  private openFastLine(peerId: string) {
-    void this.closeFastLine();
+  private openFastLines(peerId: string) {
+    void this.closeFastLines();
     try {
       const pc = this.room?.getPeers?.()?.[peerId]?.connection as RTCPeerConnection | undefined;
       if (!pc) {
         log("[fastline] no pc yet - staying on the trystero channel");
         return;
       }
-      const dc = pc.createDataChannel("fastline", { negotiated: true, id: 2, ordered: false, maxRetransmits: 0 });
-      dc.binaryType = "arraybuffer";
-      this.fastlinePeerId = peerId;
-      dc.onopen = () => log("[fastline] unreliable channel open (id 2) â€” move/cur traffic rides it");
-      dc.onmessage = (ev) => {
-        if (this.fastlinePeerId === this.peerId) this.lastRxAt = Date.now();
-        const data = ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : new Uint8Array(ev.data as ArrayBuffer);
-        this.onFastFrame(data);
-      };
-      dc.onclose = () => {
-        if (this.fastline === dc) this.fastline = null;
-        log("[fastline] closed");
-      };
-      this.fastline = dc;
+      const lanes: RTCDataChannel[] = [];
+      for (const id of HiddenAgent.LANE_IDS) {
+        try {
+          const dc = pc.createDataChannel(id === 2 ? "fastline" : `fastline-${id}`, { negotiated: true, id, ordered: false, maxRetransmits: 0 });
+          dc.binaryType = "arraybuffer";
+          this.fastlinePeerId = peerId;
+          dc.onopen = () => log(`[fastline] lane ${id} open`);
+          dc.onmessage = (ev) => {
+            if (this.fastlinePeerId === this.peerId) this.lastRxAt = Date.now();
+            const data = ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : new Uint8Array(ev.data as ArrayBuffer);
+            this.onFastFrame(data);
+          };
+          dc.onclose = () => { this.fastlines = this.fastlines.filter((l) => l !== dc); log(`[fastline] lane ${id} closed`); };
+          lanes.push(dc);
+        } catch (err) {
+          console.warn(`[fastline] lane ${id} open failed - other lanes keep working:`, err instanceof Error ? err.message : String(err));
+        }
+      }
+      this.fastlines = lanes;
+      log(`[fastline] ${lanes.length} redundant lanes requested (ids ${HiddenAgent.LANE_IDS[0]}-${HiddenAgent.LANE_IDS[HiddenAgent.LANE_IDS.length - 1]})`);
     } catch (err) {
-      console.warn("[fastline] open failed - staying on the trystero channel:", err instanceof Error ? err.message : String(err));
-      this.fastline = null;
+      console.warn("[fastline] lanes unavailable - staying on the trystero channel:", err instanceof Error ? err.message : String(err));
+      this.fastlines = [];
     }
   }
 
-  private async closeFastLine() {
-    const dc = this.fastline;
-    this.fastline = null;
+  private async closeFastLines() {
+    const lanes = this.fastlines;
+    this.fastlines = [];
     this.fastlinePeerId = null;
-    try { dc?.close(); } catch { /* already gone */ }
+    for (const dc of lanes) { try { dc?.close(); } catch { /* already gone */ } }
   }
 
   /** Shared seat teardown for both the clean bye path and the heartbeat-loss path. */
@@ -349,17 +357,18 @@ class HiddenAgent {
     this.peerId = null;
     this.lastRxAt = 0;
     this.stopLoops();
-    void this.closeFastLine();
+    void this.closeFastLines();
     void bridge.invoke("input:inject", { kind: "reset" });
     void bridge.invoke("agent:notify", { title: "RemoteX", body: reason });
     void reportStatus("Session ended - ready for a new connection", "waiting");
   }
 
-  /** Send a fast frame on BOTH lines when fastline is open (tracker dedups at the far end). */
+  /** Replicate every fast frame on ALL open lanes (shared seq; the client dedups). */
   private fastSend(frame: Uint8Array) {
-    const dc = this.fastline;
-    if (dc && dc.readyState === "open") {
-      try { dc.send(new Uint8Array(frame).buffer); } catch { /* drop - next frame will arrive */ }
+    for (const dc of this.fastlines) {
+      if (dc.readyState === "open") {
+        try { dc.send(new Uint8Array(frame).buffer); } catch { /* drop - other lanes carry it */ }
+      }
     }
     void this.fast?.send(frame).catch(() => {});
   }

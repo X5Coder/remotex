@@ -10,9 +10,13 @@
  * coming from a peer other than the first one.
  *
  * Channel reality (trystero >= 0.27): ONE ordered, reliable data channel shared by the
- * binary `fast` actions and the JSON `ctl` actions. The cursor beacon (`cur`) is
- * broadcast on BOTH lines with one shared 16-bit sequence number - if one line stalls
- * or drops a frame, the other line delivers it and the duplicate is dropped here.
+ * binary `fast` actions and the JSON `ctl` actions. ON TOP of that, the peer connection
+ * carries N=10 redundant unreliable negotiated lanes (ids 2-11, unordered,
+ * maxRetransmits: 0) - every binary `fast` frame is replicated onto all of them and the
+ * far end dedups by 16-bit seq, so the first copy to land wins and the rest are dropped.
+ * The cursor beacon (`cur`) is also broadcast on the JSON ctl line with one shared
+ * 16-bit sequence number - if every lane stalls, the ctl line delivers it and the
+ * duplicate is dropped here.
  * A 1 Hz watchdog asks the agent to force-republish the cursor whenever no beacon
  * has arrived on either line within ~400 ms - if one line fails, the other compensates.
  */
@@ -242,7 +246,7 @@ export class Session implements CommandSink {
       if (this.peerId && this.peerId !== peerId) return; // seat already taken — refuse silently
       this.peerId = peerId;
       window.clearTimeout(this.connectTimer ?? undefined);
-      this.openFastLine(peerId);
+      this.openFastLines(peerId);
       cb.onPhase("connected");
       // 5-hour session cap: auto-disconnect — the user can reconnect with the same password
       window.clearTimeout(this.sessionLimitTimer ?? undefined);
@@ -388,7 +392,7 @@ export class Session implements CommandSink {
   }
 
   async close() {
-    this.closeFastLine();
+    this.closeFastLines();
     const room = this.room;
     this.room = null;
     if (room) {
@@ -452,40 +456,53 @@ export class Session implements CommandSink {
     }
   }
 
-  private fastline: RTCDataChannel | null = null;
+  /** Redundant unreliable lanes (ids 2-11, maxRetransmits: 0, unordered) - EVERY fast
+   *  frame rides all of them; the far end dedups by seq, so the first copy to land wins
+   *  and the rest are dropped. Loss on any single lane is invisible to the user. */
+  private static readonly LANE_IDS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+  private fastlines: RTCDataChannel[] = [];
 
-  /** Unreliable negotiated channel (id 2) — move/scroll/cur never stall behind retransmits. */
-  private openFastLine(peerId: string) {
-    this.closeFastLine();
+  private openFastLines(peerId: string) {
+    this.closeFastLines();
     try {
       const pc = this.room?.getPeers?.()?.[peerId]?.connection as RTCPeerConnection | undefined;
-      if (!pc) { console.warn("[fastline] no pc yet — staying on the trystero channel"); return; }
-      const dc = pc.createDataChannel("fastline", { negotiated: true, id: 2, ordered: false, maxRetransmits: 0 });
-      dc.binaryType = "arraybuffer";
-      dc.onopen = () => console.log("[fastline] unreliable channel open (id 2)");
-      dc.onmessage = (ev) => {
-        const bytes = ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : new Uint8Array(ev.data as ArrayBuffer);
-        this.handleFastFrame(bytes);
-      };
-      dc.onclose = () => { if (this.fastline === dc) this.fastline = null; };
-      this.fastline = dc;
+      if (!pc) { console.warn("[fastline] no pc yet - staying on the trystero channel"); return; }
+      const lanes: RTCDataChannel[] = [];
+      for (const id of Session.LANE_IDS) {
+        try {
+          const dc = pc.createDataChannel(`fastline${id === 2 ? "" : "-" + id}`, { negotiated: true, id, ordered: false, maxRetransmits: 0 });
+          dc.binaryType = "arraybuffer";
+          dc.onopen = () => console.log(`[fastline] lane ${id} open`);
+          dc.onmessage = (ev) => {
+            const bytes = ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : new Uint8Array(ev.data as ArrayBuffer);
+            this.handleFastFrame(bytes);
+          };
+          dc.onclose = () => { this.fastlines = this.fastlines.filter((l) => l !== dc); };
+          lanes.push(dc);
+        } catch (err) {
+          console.warn(`[fastline] lane ${id} open failed - other lanes keep working:`, err);
+        }
+      }
+      this.fastlines = lanes;
+      console.log(`[fastline] ${lanes.length} redundant lanes requested (ids ${Session.LANE_IDS[0]}-${Session.LANE_IDS[Session.LANE_IDS.length - 1]})`);
     } catch (err) {
-      console.warn("[fastline] open failed — staying on the trystero channel:", err);
-      this.fastline = null;
+      console.warn("[fastline] lanes unavailable - staying on the trystero channel:", err);
+      this.fastlines = [];
     }
   }
 
-  private closeFastLine() {
-    const dc = this.fastline;
-    this.fastline = null;
-    try { dc?.close(); } catch { /* already gone */ }
+  private closeFastLines() {
+    const lanes = this.fastlines;
+    this.fastlines = [];
+    for (const dc of lanes) { try { dc?.close(); } catch { /* already gone */ } }
   }
 
-  /** Send on BOTH lines when fastline is open (shared seq; the agent dedups). */
+  /** Replicate every fast frame on ALL open lanes (shared seq; the agent dedups). */
   private fastSend(frame: Uint8Array) {
-    const dc = this.fastline;
-    if (dc && dc.readyState === "open") {
-      try { dc.send(new Uint8Array(frame).buffer); } catch { /* drop — latest position still wins */ }
+    for (const dc of this.fastlines) {
+      if (dc.readyState === "open") {
+        try { dc.send(new Uint8Array(frame).buffer); } catch { /* drop - other lanes carry it */ }
+      }
     }
     this.fast?.send(frame).catch(() => {});
   }

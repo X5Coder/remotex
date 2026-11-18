@@ -343,12 +343,14 @@ export class RemoteSurface {
     }
     st.setProperty("--sw", Math.floor(sw) + "px");
     st.setProperty("--sh", Math.floor(sh) + "px");
+    this.invalidateRectCache();
     window.scrollTo(0, 0);
     requestAnimationFrame(() => { if (this.full) this.applyTarget(); this.measure(); });
   };
 
   private measure = () => {
     if (!this.full) { this.SW = this.screenEl.clientWidth; this.SH = this.screenEl.clientHeight; }
+    this.invalidateRectCache();
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     this.W = window.innerWidth; this.H = window.innerHeight;
     this.canvas.width = this.W * dpr; this.canvas.height = this.H * dpr;
@@ -560,13 +562,21 @@ export class RemoteSurface {
   /* ---------- desktop (mouse) mode ---------- */
 
   private norm(e: PointerEvent | WheelEvent) {
-    const r = this.screenEl.getBoundingClientRect();
     const c = this.contentRect();
+    const r = this.cachedRect(); // cached - reading getBoundingClientRect() on every pointermove forces synchronous layout per event and tanks the frame rate
     return {
       x: clamp((e.clientX - r.left - c.ox) / c.cw, 0, 1),
       y: clamp((e.clientY - r.top - c.oy) / c.ch, 0, 1),
     };
   }
+
+  /** rect of the video content element, refreshed only on fit/measure/resize - never mid-gesture. */
+  private rectCache: { r: DOMRect; at: number } | null = null;
+  private cachedRect(): DOMRect {
+    if (!this.rectCache) this.rectCache = { r: this.screenEl.getBoundingClientRect(), at: 0 };
+    return this.rectCache.r;
+  }
+  private invalidateRectCache() { this.rectCache = null; }
 
   private onMouseMove = (e: PointerEvent) => {
     if (this.mode !== "mouse" || e.pointerType !== "mouse") return;
