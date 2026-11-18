@@ -183,15 +183,17 @@ function enterRemote() {
   }
   session!.setStaleFrameProbe(() => !!remote?.framesFlowing());
   let lastAutoRecover = 0;
+  let lastStaleToast = 0;
   remote.setStaleHandler(() => {
-    // at most ONE auto re-dial per 5 minutes — unthrottled recovery caused the connect/drop churn
+    // at most ONE silent re-dial per 5 minutes; always say plainly what's wrong
     const now = Date.now();
+    if (now - lastStaleToast > 4000) {
+      lastStaleToast = now;
+      toast("No video from the computer — make sure RemoteX is running and capture isn't blocked");
+    }
     if (now - lastAutoRecover > 5 * 60 * 1000) {
       lastAutoRecover = now;
-      toast("Reconnecting…");
       void session?.silentRecover();
-    } else {
-      toast("Video stalled — tap Connect to rejoin.");
     }
   });
   dockEl.hidden = remote.device !== "tablet";
