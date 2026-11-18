@@ -52,18 +52,6 @@ body{
   transition:background-color .25s ease,color .25s ease;
 }
 
-/* ============ toolbar (connect page only) ============ */
-.toolbar{
-  height:56px;display:flex;align-items:center;justify-content:space-between;
-  padding:0 max(14px, env(safe-area-inset-left)) 0 max(18px, env(safe-area-inset-left));
-  border-bottom:1px solid var(--line);
-  background:var(--bg);
-  animation:fadeDown .45s cubic-bezier(.32,.72,.25,1) both;
-}
-.brand{display:flex;align-items:center;gap:9px;text-decoration:none;color:inherit}
-.brandMark{width:26px;height:26px;display:block}
-.brandName{font-weight:750;font-size:15px;letter-spacing:.2px}
-
 /* ============ icon buttons ============ */
 .iconBtn{width:38px;height:38px;border:1px solid transparent;border-radius:12px;background:transparent;color:var(--muted);
   display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s,color .15s,transform .15s}
@@ -139,6 +127,7 @@ body{
 .ghLink:hover{color:var(--ink)}
 .ghLink svg{width:15px;height:15px}
 .verTag{font-size:10px;color:var(--muted);letter-spacing:1px}
+.footRight{display:flex;align-items:center;gap:8px}
 
 /* ============ settings dialog ============ */
 .overlay{
@@ -181,6 +170,15 @@ body{
 .switch[aria-checked="true"]{background:var(--accent)}
 .switch[aria-checked="true"] .knob{transform:translateX(18px)}
 .switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ============ remote main-page toolbar (small view only; hidden in focus/land) ============ */
+.rToolbar{flex:none;display:flex;align-items:center;gap:10px;height:40px;padding:0 8px;margin:0 0 6px;border-radius:13px;
+  background:var(--card);border:1px solid var(--line);animation:fadeDown .3s cubic-bezier(.32,.72,.25,1) both}
+.rBrand{display:flex;align-items:center;gap:8px;font-weight:750;font-size:13px;letter-spacing:.2px;color:var(--ink);padding:0 4px}
+.rMark{width:20px;height:20px;display:block;border-radius:5px}
+.rSpacer{flex:1}
+body.focus .rToolbar, body.land .rToolbar{display:none}
+[data-theme="dark"] .rToolbar{background:#141414;border-color:#232323}
 
 .app{position:fixed;left:0;right:0;top:0;height:var(--h,100vh);display:flex;flex-direction:column;
   justify-content:flex-start;padding:calc(6px + env(safe-area-inset-top)) 6px 0;overflow:hidden}

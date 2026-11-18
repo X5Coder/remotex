@@ -337,7 +337,8 @@ export class RemoteSurface {
       sh = Math.min(vw / this.ar, vh); sw = sh * this.ar;
     } else {
       const padTop = parseFloat(getComputedStyle(this.app).paddingTop) || 6;
-      const maxSh = Math.max(80, vh - padTop - 6 - 30 - 52 - 70);
+      const barH = (document.getElementById("rToolbar")?.offsetHeight || 0) + 6; // main-page toolbar height + margin (0 when hidden in focus/land)
+      const maxSh = Math.max(80, vh - padTop - 6 - 30 - 52 - 70 - barH);
       sh = Math.min((vw - 24) / this.ar, maxSh); sw = sh * this.ar;
     }
     st.setProperty("--sw", Math.floor(sw) + "px");
@@ -428,7 +429,7 @@ export class RemoteSurface {
 
   private onTouchDown = (e: PointerEvent) => {
     if (this.mode !== "touch" || e.pointerType === "mouse" || this.pid !== null || this.anim || this.busy) return;
-    if ((e.target as HTMLElement).closest(".tray, .foldTab, #kbInput")) return;
+    if ((e.target as HTMLElement).closest(".tray, .foldTab, #kbInput, .btns, .lui, .dock, button")) return; // buttons own their gestures - never the background tap-to-click
     e.preventDefault();
     this.pid = e.pointerId;
     this.onScreen = !!(e.target as HTMLElement).closest("#screen");

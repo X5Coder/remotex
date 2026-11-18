@@ -54,7 +54,7 @@ export function initPrefs() {
   applyHideArrow(readHideArrow());
   applyChromeHidden(readChromeHidden());
 
-  const settingsBtn = document.getElementById("settingsBtn");
+  
   const overlay = document.getElementById("settingsOverlay");
   const dialog = document.getElementById("settingsDialog");
   const closeBtn = document.getElementById("settingsClose");
@@ -75,7 +75,7 @@ export function initPrefs() {
     }, 200);
   };
 
-  settingsBtn?.addEventListener("click", openDialog);
+  document.querySelectorAll<HTMLElement>("[data-open-settings]").forEach((btn) => btn.addEventListener("click", openDialog));
   closeBtn?.addEventListener("click", closeDialog);
   overlay?.addEventListener("click", (e) => { if (e.target === overlay) closeDialog(); });
   document.addEventListener("keydown", (e) => {
