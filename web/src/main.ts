@@ -33,6 +33,7 @@ window.addEventListener("focusin", (e) => {
 
 let remote: RemoteSurface | null = null;
 let session: Session | null = null;
+let pendingStream: MediaStream | null = null;
 let wakeLock: { release: () => Promise<void> } | null = null;
 let inRemote = false;
 
@@ -131,7 +132,10 @@ function startSession(roomId: string, password: string) {
         }
       },
       onStream(stream) {
-        remote?.setStream(stream);
+        // The stream can arrive BEFORE the remote surface is constructed — queue it
+        // instead of silently dropping the video track (this was the black-screen bug).
+        if (remote) remote.setStream(stream);
+        else pendingStream = stream;
       },
 
       onRtt(_ms) { /* overlay removed — RTT kept internal for the adaptive bitrate ladder */ },
@@ -172,6 +176,11 @@ function enterRemote() {
     { duration: 380, easing: "cubic-bezier(.32,.72,.25,1)" }
   );
   remote = new RemoteSurface({ sink: session! });
+  const queued = pendingStream;
+  if (queued) {
+    remote.setStream(queued);
+    pendingStream = null;
+  }
   session!.setStaleFrameProbe(() => !!remote?.framesFlowing());
   let lastAutoRecover = 0;
   remote.setStaleHandler(() => {
