@@ -29,11 +29,11 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getEl
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-// touch-mode arrow sensitivity — high enough that ONE normal finger stroke sweeps the remote
-// screen (the old 2.0/1.7 needed several strokes per sweep); fast flicks throw it further via ACCEL
-const GAIN = 3.4;
-const LAND_GAIN = 2.8;
-const ACCEL = 0.8;
+// touch-mode arrow sensitivity — phone touchpad feel: fast sweeps on one stroke (user asked for MAX speed);
+// fast flicks throw it even further via ACCEL
+const GAIN = 4.5;
+const LAND_GAIN = 4.0;
+const ACCEL = 1.0;
 const ANIM_MS = 380;
 const LONG_PRESS_MS = 550;
 
@@ -584,38 +584,92 @@ export class RemoteSurface {
   }
   private invalidateRectCache() { this.rectCache = null; }
 
+  /** True cursor position reported by the agent (hello.cursor, normalized of the remote display),
+   *  seeded from `setHello`. Mouse mode accumulates deltas onto THIS position instead of teleporting
+   *  to the hand's mapped spot — that's what makes remote control of your OWN machine usable
+   *  (the OS cursor becomes a shadow of your hand and the agent never teleports it far away). */
+  private acc: { x: number; y: number } | null = null; // remote-display pixels
+  private hostW = 1;
+  private hostH = 1;
+
+  /** Called once the agent's `hello` arrives — seeds the absolute cursor anchor for delta accumulation. */
+  setHostScreen(width: number, height: number, cursor?: { x: number; y: number }) {
+    const w = Math.max(1, Math.floor(width) || 1), h = Math.max(1, Math.floor(height) || 1);
+    this.hostW = w;
+    this.hostH = h;
+    this.acc = { x: (cursor?.x ?? 0.5) * (w - 1), y: (cursor?.y ?? 0.5) * (h - 1) };
+  }
+
+  /** Accumulated absolute position (normalized) — the anchor the agent teleports to after our deltas. */
+  private accNorm() {
+    const a = this.acc ?? { x: 0.5 * (this.hostW - 1), y: 0.5 * (this.hostH - 1) };
+    const maxX = Math.max(1, this.hostW - 1), maxY = Math.max(1, this.hostH - 1);
+    return { x: clamp(a.x / maxX, 0, 1), y: clamp(a.y / maxY, 0, 1) };
+  }
+
+  /** Last position we COMMANDED the host to move the OS cursor to (normalized).
+   * Controlling the SAME machine: robotjs teleports the real cursor, which fires a
+   * pointermove over this page at the teleported spot — an ECHO. The echo's movementX/Y
+   * is exactly the delta we sent (that IS the displacement the teleport just caused), so
+   * any event whose movement matches the delta we last commanded is our own echo and must
+   * never be sent again — otherwise each echo re-enters the loop and the OS cursor darts
+   * to a distant spot ("السهم بيرمي نفسه مكان بعيد"). Matching movementX/Y is reliable on
+   * every geometry (any monitor layout, DPI, window position) and never depends on rects. */
+  private lastCmdDelta: { dx: number; dy: number } | null = null;
+  private static readonly ECHO_MOVE_EPS = 1; // teleport rounding can shift the echo by ±1 px; sub-pixel match still catches it
+
   private onMouseMove = (e: PointerEvent) => {
     if (this.mode !== "mouse" || e.pointerType !== "mouse") return;
     this.lastPointerType = "mouse";
-    const p = this.norm(e);
-    this.mvPending = p;
-    // the OS mouse IS the remote cursor here — map 1:1 and snap the overlay instantly (no prediction lag)
+    const ddx = e.movementX ?? 0, ddy = e.movementY ?? 0;
+    const echo =
+      this.lastCmdDelta !== null &&
+      Math.abs(ddx - this.lastCmdDelta.dx) <= RemoteSurface.ECHO_MOVE_EPS &&
+      Math.abs(ddy - this.lastCmdDelta.dy) <= RemoteSurface.ECHO_MOVE_EPS;
+    // ONE event per physical hand step is sent (the echo of our own teleport carries the
+    // exact delta we sent, so it NEVER reaches the wire) — the command stream is a pure
+    // function of the hand; the OS cursor can not run away.
+    this.lastCmdDelta = echo ? null : { dx: ddx, dy: ddy };
+    if (echo) return;
+    if (this.acc) {
+      const maxX = Math.max(0, this.hostW - 1), maxY = Math.max(0, this.hostH - 1);
+      this.acc.x = clamp(this.acc.x + ddx, 0, maxX);
+      this.acc.y = clamp(this.acc.y + ddy, 0, maxY);
+    } else {
+      // hello not received yet — fall back to mapping the video 1:1 (pre-connect frames, rare)
+      this.acc = { x: this.norm(e).x * (this.hostW - 1), y: this.norm(e).y * (this.hostH - 1) };
+    }
+    const p = this.accNorm();
+    // local arrow tracks the pointer 1:1; the commanded OS cursor accumulates the same deltas
     this.S.synced = true;
     this.S.tx = p.x;
     this.S.ty = p.y;
     this.kick();
+    this.mvPending = p;
     if (!this.mvRaf) this.mvRaf = requestAnimationFrame(this.flushMove);
   };
-
-  /** the button currently held on the HOST (set on screenEl pointerdown, released by any document pointerup) */
-  private hostBtnDown: MouseButton | null = null;
-  private BTN: MouseButton[] = ["left", "middle", "right"];
 
   private onMouseDown = (e: PointerEvent) => {
     if (this.mode !== "mouse" || e.pointerType !== "mouse") return;
     e.preventDefault();
     this.screenEl.setPointerCapture(e.pointerId);
     this.hostBtnDown = this.BTN[e.button] ?? "left";
-    const p = this.norm(e);
+    const p = this.accNorm();
+    this.lastCmdDelta = null; // the agent re-teleports to ~the same spot on down — its echo must not eat the next real move
     this.sink.pointer("down", this.hostBtnDown, +p.x.toFixed(4), +p.y.toFixed(4));
   };
+
+  /** the button currently held on the HOST (set on screenEl pointerdown, released by any document pointerup) */
+  private hostBtnDown: MouseButton | null = null;
+  private BTN: MouseButton[] = ["left", "middle", "right"];
 
   private onMouseUp = (e: PointerEvent) => {
     if (this.mode !== "mouse" || e.pointerType !== "mouse") return;
     const held = this.hostBtnDown;
     if (!held) return; // this release pairs with a chrome button's own gesture (holdButton), not the host
     this.hostBtnDown = null;
-    const p = this.norm(e);
+    const p = this.accNorm(); // shared anchor with the agent — teleporting there is a no-op (cursor already under the hand)
+    this.lastCmdDelta = null; // the agent teleports on up too — don't let its echo swallow the next real move
     this.sink.pointer("up", held, +p.x.toFixed(4), +p.y.toFixed(4));
   };
 
@@ -946,6 +1000,7 @@ export class RemoteSurface {
     s.left = t.left + "px"; s.top = t.top + "px"; s.width = t.w + "px"; s.height = t.h + "px";
     s.transform = `rotate(${t.rot}deg)`;
     this.SW = t.w; this.SH = t.h;
+    this.invalidateRectCache(); // the parked rect becomes the new mapping reference — never serve stale coords
     const h = this.shade.style;
     h.left = s.left; h.top = s.top; h.width = s.width; h.height = s.height;
     h.transform = s.transform; h.opacity = this.land ? "0" : "1";

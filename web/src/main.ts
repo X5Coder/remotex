@@ -34,6 +34,7 @@ window.addEventListener("focusin", (e) => {
 let remote: RemoteSurface | null = null;
 let session: Session | null = null;
 let pendingStream: MediaStream | null = null;
+let pendingHello: import("@remotex/protocol").HelloMessage | null = null;
 let wakeLock: { release: () => Promise<void> } | null = null;
 let inRemote = false;
 
@@ -141,6 +142,9 @@ function startSession(roomId: string, password: string) {
       onRtt(_ms) { /* overlay removed — RTT kept internal for the adaptive bitrate ladder */ },
       onHello(hello) {
         toast("Connected");
+        // seed the mouse-mode accumulator with the TRUE remote cursor position (hello.screen/.cursor)
+        if (remote) remote.setHostScreen(hello.screen.width, hello.screen.height, hello.cursor);
+        else pendingHello = hello;
         remote?.setCursor(hello.cursor.x, hello.cursor.y); // sync phone cursor to the host cursor immediately
       },
       onClipboard(text) {
@@ -180,6 +184,11 @@ function enterRemote() {
   if (queued) {
     remote.setStream(queued);
     pendingStream = null;
+  }
+  const queuedHello = pendingHello;
+  if (queuedHello) {
+    remote.setHostScreen(queuedHello.screen.width, queuedHello.screen.height, queuedHello.cursor);
+    pendingHello = null;
   }
   session!.setStaleFrameProbe(() => !!remote?.framesFlowing());
   let lastAutoRecover = 0;
