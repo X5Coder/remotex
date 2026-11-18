@@ -12,9 +12,13 @@ protocol/dist/
 # Web build
 web/dist/
 
+# Optional TURN relay credentials — injected at CI time from GitHub Secrets, never committed
+web/public/turn.json
+
 # Logs
 *.log
 npm-debug.log*
+turn-signup-logs/
 
 # OS junk
 Thumbs.db

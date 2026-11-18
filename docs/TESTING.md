@@ -42,7 +42,7 @@ agent window status flips to "Connected â€” one device is in control".
 | H.264 HW encode | NVENC/QSV via MF | âœ… | VideoToolbox | VA-API | VA-API |
 
 Clients: Android Chrome Â· iPhone Safari (H.264; needs tap to start video) Â· desktop Chrome/Edge/Firefox/Safari.
-Networks: same Wi-Fi Â· Wi-Fiâ†’mobile data Â· two ISPs Â· symmetric NAT (expect failure without TURN).
+Networks: same Wi-Fi Â· Wi-Fiâ†’mobile data Â· two ISPs Â· symmetric NAT (works after the in-app **Set up automatically — free** TURN setup completes; otherwise expect peer-connect-failed).
 Displays: 1 & 2 monitors Â· DPI 100/150/200 %.
 
 ## Known-good smoke: LAN latency targets (master.md Â§0)

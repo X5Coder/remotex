@@ -588,21 +588,38 @@ Release gate: all section 0 targets met on Windows + one other OS, or
 
 ======================================================================
 
-11\. TURN FALLBACK (optional, Step 12)
+11\. TURN FALLBACK (in-app wizard, default ON after setup)
 
 ======================================================================
 
-Needed only when direct P2P fails (symmetric NAT, strict corporate
+Added after direct P2P failed for users on networks behind symmetric
+NAT (mobile CGNAT, strict corporate WiFi) — STUN alone cannot relay
+media, only TURN can.
 
-WiFi). Note: this is an external relay, so it is OFF by default and
+One-click setup inside the RemoteX window: "Set up automatically — free"
+creates the metered.ca account itself (no card, 500 MB/month free) in a
+headless Chrome/Edge profile, verifies the signup email through a
+pluggable inbox provider (mail.tm by default), accepts the terms,
+creates an app, and extracts the TURN credential from the dashboard.
+The app then PROVES the credential with a real TURN Allocate against
+global.relay.metered.ca (all transports, see src/turn-verify.ts), and
+atomically writes %APPDATA%/remotex/turn.json. The window shows only a
+spinner while this runs; failures keep a retry button and diagnostics
+under %APPDATA%/remotex/turn-signup-logs. The old API-key path remains
+as a hidden IPC fallback for support scripts; only the derived
+{urls, username, credential} is persisted.
 
-only added if you decide to allow it later.
+Alternative: drop turn.json there by hand (see docs/turn.json.example).
+When turn.json is absent, Trystero's default STUN is all you get —
+remote networks behind symmetric NAT will fail with peer-connect-
+failed, which is exactly the limitation this removes.
 
-Option: Cloudflare Realtime TURN with your own account (reported free
+The web client needs nothing — a relay on the agent side is enough
+to carry the session for any client-side NAT type.
 
-tier 1,000 GB/month, then $0.05/GB; no TCP relaying) \[VERIFY pricing].
-
-Configure via Trystero turnConfig. Credentials never committed to repo.
+Relay sees only DTLS-SRTP-encrypted packets. Configure via Trystero
+turnConfig (see @remotex/protocol ice.ts). Credentials never committed
+to repo.
 
 
 

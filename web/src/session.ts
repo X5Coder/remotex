@@ -17,6 +17,7 @@
  * has arrived on either line within ~400 ms - if one line fails, the other compensates.
  */
 import { joinRoom } from "trystero";
+import { fetchSyncedTurn } from "./turn-sync";
 import {
   PROTOCOL_VERSION,
   SeqCounter,
@@ -29,6 +30,7 @@ import {
   encodeCtl,
   ChunkAssembler,
   isVersionMismatch,
+  resolveTurnConfig,
   type MouseButton,
   type HelloMessage,
 } from "@remotex/protocol";
@@ -37,6 +39,7 @@ import type { CommandSink } from "./remote";
 type Room = ReturnType<typeof joinRoom>;
 
 const APP_ID = "remotex-1"; // namespace shared with the agent; change = everyone must upgrade
+const STORE_KEY = "remotex.turn.v1"; // relay credential persisted by a one-time #turn= setup link
 const CONNECT_TIMEOUT_MS = 12_000;
 const MAX_ATTEMPTS = 3;
 const SESSION_LIMIT_MS = 5 * 60 * 60 * 1000; // 5 hours — then auto-disconnect; reconnect with the same password
@@ -78,6 +81,36 @@ async function buildRelayUrls(): Promise<string[]> {
 
 export type SessionPhase = "connecting" | "connected" | "failed" | "closed";
 
+/** localStorage key for the per-device relay credential (shared with main.ts's #turn= handler). */
+export const TURN_STORE_KEY = STORE_KEY;
+
+export interface StoredTurnConfig {
+  urls: string[];
+  username?: string;
+  credential?: string;
+}
+
+/** Parse a #turn= payload (base64url JSON {urls, username, credential}) into a safe config, or null. */
+export function parseTurnFragment(payload: string): StoredTurnConfig | null {
+  try {
+    if (!payload || payload.length > 8192) return null;
+    const b64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+    const bin = atob(padded);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const j = JSON.parse(new TextDecoder().decode(bytes)) as { urls?: unknown; username?: unknown; credential?: unknown };
+    const urls = Array.isArray(j?.urls) ? j.urls.filter((u): u is string => typeof u === "string" && u.length > 0) : [];
+    if (urls.length === 0) return null;
+    const cfg: StoredTurnConfig = { urls: urls.slice(0, 5) };
+    if (typeof j.username === "string" && j.username) cfg.username = j.username;
+    if (typeof j.credential === "string" && j.credential) cfg.credential = j.credential;
+    return cfg;
+  } catch {
+    return null;
+  }
+}
+
 export interface SessionCallbacks {
   onPhase(phase: SessionPhase, reason?: string): void;
   onStream(stream: MediaStream): void;
@@ -113,9 +146,26 @@ export class Session implements CommandSink {
 
   constructor(private opts: { roomId: string; password: string; cb: SessionCallbacks }) {}
 
-  /** Optional TURN relay — drop a turn.json next to index.html for guaranteed
-   *  connectivity on restrictive networks (Cloudflare TURN free tier works). */
+  /** TURN relay for THIS device.
+   *  1) one-time setup link from the agent window (#turn=…), persisted in localStorage — the user's own credential, never public;
+   *  2) build-time injection next to index.html (self-hosted deployments);
+   *  Falls back to the built-in Open Relay (public static-auth, no account) when absent. */
   private async loadTurnConfig(): Promise<{ urls: string[]; username?: string; credential?: string } | null> {
+    try {
+      const stored = localStorage.getItem(STORE_KEY);
+      if (stored) {
+        const j = JSON.parse(stored) as { urls?: unknown; username?: unknown; credential?: unknown };
+        const urls = Array.isArray(j?.urls)
+          ? j.urls.filter((u): u is string => typeof u === "string" && u.length > 0)
+          : typeof j?.urls === "string" && j.urls ? [j.urls] : [];
+        if (urls.length > 0) {
+          const cfg: { urls: string[]; username?: string; credential?: string } = { urls: urls.slice(0, 5) };
+          if (typeof j.username === "string") cfg.username = j.username;
+          if (typeof j.credential === "string") cfg.credential = j.credential;
+          return cfg;
+        }
+      }
+    } catch { /* private mode or corrupt entry — fall through */ }
     try {
       const res = await fetch("./turn.json", { cache: "no-store" });
       if (!res.ok) return null;
@@ -136,7 +186,16 @@ export class Session implements CommandSink {
   async start(attempt = 1) {
     const { roomId, password, cb } = this.opts;
     if (attempt > 1) console.log(`[session] retry attempt ${attempt}`);
-    const turn = await this.loadTurnConfig();
+    // 0) freshest source: the Apps Script bridge (auto-synced by the agent on every launch).
+    //    On success cache it locally so a flaky script never breaks a connect.
+    const synced = await fetchSyncedTurn(roomId, password);
+    if (synced) {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(synced)); } catch { /* private mode */ }
+    }
+    // user's stored/synced credential wins; otherwise the built-in Open Relay (public, no account)
+    const userTurn = synced ?? (await this.loadTurnConfig());
+    const turnConfig = await resolveTurnConfig(userTurn);
+    console.log("[session] TURN:", synced ? "auto-sync (apps script)" : userTurn ? "saved on this device" : "built-in Open Relay");
     const relayUrls = await buildRelayUrls();
     console.log("[session] relay urls:", relayUrls.join(", ") || "(none)");
     cb.onPhase("connecting");
@@ -150,7 +209,7 @@ export class Session implements CommandSink {
           maxUsers: 2, // agent + this client â€” single session
           trickleIce: true,
           relayConfig: { urls: relayUrls },
-          ...(turn ? { turnConfig: [turn] } : {}),
+          ...(turnConfig ? { turnConfig } : {}),
         },
         roomId
       );
@@ -197,12 +256,14 @@ export class Session implements CommandSink {
       cb.onPhase("connected");
       // 5-hour session cap: auto-disconnect — the user can reconnect with the same password
       window.clearTimeout(this.sessionLimitTimer ?? undefined);
-      this.sessionLimitTimer = window.setTimeout(() => this.handleClose("Session ended after 5 hours. Open the page again to reconnect with the same password."), SESSION_LIMIT_MS);
+      this.sessionLimitTimer = window.setTimeout(() => this.handleClose("Session ended after 5 hours. RemoteX rotates its password automatically — reopen the page with the NEW password shown on the computer."), SESSION_LIMIT_MS);
       this.startRtt();
     });
 
     room.onPeerLeave(({ peerId }) => {
-      if (peerId === this.peerId) this.handleClose("The agent disconnected.");
+      // agent vanished WITHOUT a clean bye — auto re-dial with the same credentials
+      // (covers transient drops AND the agent's mid-session TURN renewal re-arm)
+      if (peerId === this.peerId) void this.silentRecover();
     });
 
     room.onError((err) => {

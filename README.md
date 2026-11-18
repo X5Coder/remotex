@@ -38,6 +38,8 @@ Allow administrator permission if asked.
 
 **5. Enter the Device ID and Password**
 
+Works from any network in the world — including mobile data and strict office Wi-Fi. One click needed on the agent PC: RemoteX window → **Set up automatically — free** → RemoteX creates the free [metered.ca](https://dashboard.metered.ca/signup?tool=stunturn) account, verifies its email, extracts a TURN credential, and proves it works from this machine. No API key to copy. Media is end-to-end encrypted (DTLS-SRTP) and stays direct P2P whenever possible. See [docs/TURN-AUTO-SETUP.md](docs/TURN-AUTO-SETUP.md) for mail-service configuration and diagnostics.
+
 ---
 
 ## License

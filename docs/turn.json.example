@@ -1,30 +1,37 @@
-# Optional: guaranteed connectivity on ANY network (recommended if the phone cannot reach the PC)
+# Optional: your own TURN relay — takes over the built-in Open Relay default
 #
-# Why you might need this:
-#   - The phone cannot reach the agent over LAN/Wi-Fi (AP isolation, strict firewall).
-#   - The PC-to-phone path fails because public Nostr relays are flaky in your region.
-#   - You want 100% reliability instead of "usually works".
+# RemoteX already works across networks out of the box: it ships with
+# Open Relay (Metered's public static-auth TURN, the Nextcloud Talk pattern) —
+# free, no account, best effort. Copy this file only if you want a relay with
+# YOUR OWN guaranteed quota instead.
 #
 # What you need (2 minutes, free):
-#   1. Cloudflare account → dashboard → Realtime → TURN (free tier: 1,000 GB/month)
+#   The RemoteX agent can now do steps 1–2 automatically (window → "Set up
+#   automatically — free"). This file is for manual setups, the web client,
+#   and deployments that already have credentials.
+#   1. Metered account → dashboard (https://dashboard.metered.ca/signup?tool=stunturn)
+#      Free tier: 500 MB/month, no credit card.
+#      (Cloudflare Realtime TURN is NO LONGER free by itself — $0.05/GB.)
 #   2. Copy the generated TURN credentials (username + credential).
 #   3. Copy this file to:
-#        <agent userData>/turn.json           (e.g. %APPDATA%\@remotex\agent\turn.json)
+#        <agent userData>/turn.json           (e.g. %APPDATA%\remotex\turn.json)
 #        web/turn.json                        (for local dev / preview)
 #      or deploy turn.json next to index.html on GitHub Pages (or drop it into
-#        your fork of the repo — it is git-ignored and never committed by default).
+#        your fork of the repo — it is git-ignored and never committed by default;
+#        the Pages CI can also inject it from the TURN_URLS/TURN_USERNAME/
+#        TURN_CREDENTIAL repo Secrets).
 #
 # turn.json schema:
 #   {
-#     "urls": ["turn:turn.cloudflare.com:3478?transport=udp", "turn:turn.cloudflare.com:3478?transport=tcp"],
-#     "username": "<cloudflare username>",
-#     "credential": "<cloudflare credential>"
+#     "urls": ["turn:global.relay.metered.ca:80", "turn:global.relay.metered.ca:443", "turns:global.relay.metered.ca:443"],
+#     "username": "<metered username>",
+#     "credential": "<metered credential>"
 #   }
 #
 # Media stays end-to-end encrypted (DTLS-SRTP) — the TURN relay sees only encrypted packets.
-# If turn.json is missing or invalid, RemoteX silently falls back to direct P2P (STUN + LAN).
+# If turn.json is missing or invalid, RemoteX falls back to Open Relay (no account needed).
 {
-  "urls": ["turn:turn.cloudflare.com:3478?transport=udp", "turn:turn.cloudflare.com:3478?transport=tcp"],
+  "urls": ["turn:global.relay.metered.ca:80", "turn:global.relay.metered.ca:443", "turns:global.relay.metered.ca:443?transport=tcp"],
   "username": "REPLACE_WITH_YOUR_USERNAME",
   "credential": "REPLACE_WITH_YOUR_CREDENTIAL"
 }

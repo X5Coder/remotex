@@ -7,3 +7,4 @@ export * from "./seq";
 export * from "./fast";
 export * from "./ctl";
 export * from "./chunk";
+export * from "./ice";

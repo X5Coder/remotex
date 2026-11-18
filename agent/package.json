@@ -18,6 +18,7 @@
     "icon": "node tools/gen-icon.js",
     "build": "npm run clean && npm run icon && tsc -p tsconfig.json && node tools/copy-window.js && node tools/build-hidden.js",
     "start": "npm run build && electron .",
+    "turn:signup": "node dist/turn-signup/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -25,6 +26,7 @@
     "@remotex/protocol": "file:../protocol",
     "@types/ws": "^8.18.2",
     "koffi": "^3.3.8",
+    "puppeteer-core": "^24.43.1",
     "trystero": "^0.27.0",
     "ws": "^8.23.0"
   },

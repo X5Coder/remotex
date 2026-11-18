@@ -19,16 +19,26 @@ const invokeChannels = [
   "input:inject",
   "capture:primary-source",
   "turn:config",
+  "turn:status",
+  "turn:setup",
+  "turn:web-link",
+  "turn:auto-setup",
+  "turn:auto-cancel",
+  "turn:renew",
+  "shell:open-external",
   "win:minimize",
   "win:close",
 ] as const;
 
 const onChannels = [
   "status:update",
+  "session:tick",
+  "session:renewed",
   "clipboard-changed",
   "session:ended-by-user",
   "session:stop",
   "session:new-password",
+  "turn:progress",
 ] as const;
 
 contextBridge.exposeInMainWorld("remotex", {

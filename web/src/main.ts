@@ -4,7 +4,7 @@
  */
 import { RemoteSurface } from "./remote";
 import { ConnectController } from "./connect";
-import { Session } from "./session";
+import { Session, TURN_STORE_KEY, parseTurnFragment } from "./session";
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -48,6 +48,28 @@ function toast(msg: string) {
   window.clearTimeout(toastT);
   toastT = window.setTimeout(() => toastEl.classList.remove("show"), 4000);
 }
+
+/* ---------- one-time setup link from the RemoteX window (#turn=…) ----------
+   The fragment never leaves this device — it is not part of any HTTP request —
+   and we strip it from the URL as soon as it is read. Storing the relay
+   credential in localStorage makes it apply to every future session on THIS
+   browser only (private and public devices each need the one-time link). */
+(() => {
+  try {
+    const m = /(?:^|[#&])turn=([A-Za-z0-9_-]+)/.exec(location.hash || "");
+    if (!m) return;
+    const cfg = parseTurnFragment(m[1]!);
+    try { history.replaceState(null, "", location.pathname + location.search); } catch { /* private mode */ }
+    if (!cfg) { toast("That setup link is invalid — copy it again from the RemoteX window."); return; }
+    try {
+      localStorage.setItem(TURN_STORE_KEY, JSON.stringify(cfg));
+    } catch {
+      toast("Could not save the relay on this device.");
+      return;
+    }
+    toast("Remote access enabled on this device — works from any network.");
+  } catch { /* malformed link — nothing to apply */ }
+})();
 
 /* ---------- screen wake lock ---------- */
 async function requestWakeLock() {

@@ -10,12 +10,15 @@
  * A hidden window (dist/hidden.html) owns WebRTC + capture; this process owns
  * the OS: input injection, clipboard, power settings, tray.
  */
-import { app, BrowserWindow, Tray, Menu, ipcMain, clipboard, powerSaveBlocker, screen, nativeImage, desktopCapturer, session, Notification } from "electron";
+import { app, BrowserWindow, Tray, Menu, ipcMain, clipboard, powerSaveBlocker, screen, nativeImage, desktopCapturer, session, Notification, shell } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { loadOrCreateIdentity, createLaunchPassword, regeneratePassword } from "./config";
 import { createDriver, clipboardHash, type InputDriver } from "./input";
 import { startLanServer, stopLanServer } from "./lan";
+import { verifyTurn, buildTurnUrls, waitForTurnCredential } from "./turn-verify";
+import { loadMailConfig, runTurnSignup, TurnSignupError, type MailConfig } from "./turn-signup";
+import { syncTurnNow, verifyAndHealTurnJson } from "./turn-sync";
 
 // --------------------------------------------------------------- singleton --
 // Tell Windows who we are so the taskbar AND toast notifications use RemoteX's own icon
@@ -69,6 +72,35 @@ let password = createLaunchPassword();
 let lastClipboardHash: string | null = null;
 let lastAgentClipboardWrite = 0;
 
+/** 5-hour auto-renew clock: rotates the password + re-arms the room with zero user action */
+const AUTO_RENEW_MS = 5 * 60 * 60 * 1000;
+let renewAt = Date.now() + AUTO_RENEW_MS;
+let renewTimer: ReturnType<typeof setInterval> | null = null;
+let renewInFlight = false;
+
+function autoRenew() {
+  password = regeneratePassword();
+  void syncTurnNow(app.getPath("userData"), identity.roomId, password);
+  try { hidden?.webContents.send("session:new-password", password); } catch (err) { console.error("[renew] re-arm failed:", err); }
+  try { win?.webContents.send("session:renewed", { password }); } catch { /* window hidden/closing */ }
+  try { win?.webContents.send("status:update", { tone: "waiting", text: "Auto-renewed — password rotated. Reconnect with the new password." }); } catch { /* ignore */ }
+  notify("RemoteX — auto-renewed", "The session renewed itself and the password changed.");
+  renewAt = Date.now() + AUTO_RENEW_MS;
+  console.log("[renew] auto-renewed — password rotated, room re-armed");
+}
+
+function startRenewClock() {
+  if (renewTimer) return;
+  renewTimer = setInterval(() => {
+    const remainingMs = renewAt - Date.now();
+    if (remainingMs <= 0) {
+      autoRenew();
+      return;
+    }
+    try { win?.webContents.send("session:tick", { remainingMs, renewAt }); } catch { /* window hidden/closing */ }
+  }, 1000);
+}
+
 /** OS-level external notification — used when someone connects / disconnects, even if the window is hidden */
 function notify(title: string, body: string) {
   try {
@@ -84,9 +116,9 @@ function notify(title: string, body: string) {
 function createMainWindow() {
   win = new BrowserWindow({
     width: 430,
-    height: 470,
+    height: 680,
     minWidth: 400,
-    minHeight: 430,
+    minHeight: 640,
     resizable: true,
     maximizable: false,
     frame: false,
@@ -314,6 +346,7 @@ function registerIpc() {
   /** rotate the password on demand — the hidden window re-arms the room with the new one (old password dies instantly) */
   ipcMain.handle("agent:new-password", () => {
     password = regeneratePassword();
+    void syncTurnNow(app.getPath("userData"), identity.roomId, password);
     try { hidden?.webContents.send("session:new-password", password); } catch (err) { console.error("[password] rotation failed:", err); }
     console.log("[password] rotated on user request");
     return { password };
@@ -381,6 +414,263 @@ function registerIpc() {
     }
   });
 
+  // -------------------------------------------------- TURN setup wizard --
+  // "Remote access from any network" in one click. The original handler minted
+  // a credential from an API key the user pasted; the automatic handler below
+  // goes one step further and creates the free Metered account itself in a
+  // headless browser, verifies the email, then proves the credential with a
+  // real TURN Allocate before writing %APPDATA%/remotex/turn.json. Both paths
+  // converge on the same verified file.
+  const METERED_API = "https://turn.metered.ca/api/v1";
+  const METERED_RELAY = "global.relay.metered.ca";
+  const turnJsonPath = () => path.join(app.getPath("userData"), "turn.json");
+
+  type AutoSetupResult =
+    | { ok: true; via?: string }
+    | { ok: false; error: string; cancelled?: boolean; logDir?: string };
+  let autoTurnJob: { controller: AbortController; promise: Promise<AutoSetupResult> } | null = null;
+
+  const sendTurnProgress = (phase: string, message: string, attempt: number, maxAttempts: number) => {
+    try {
+      if (win && !win.isDestroyed()) win.webContents.send("turn:progress", { phase, message, attempt, maxAttempts });
+    } catch {
+      // the window may be closing — progress is cosmetic
+    }
+  };
+
+  async function runAutoTurn(signal: AbortSignal, options?: { attempts?: number }): Promise<AutoSetupResult> {
+    const userData = app.getPath("userData");
+    const logDir = path.join(userData, "turn-signup-logs");
+    const attempts = Math.min(10, Math.max(1, Math.round(options?.attempts ?? 5)));
+    let mailConfig: MailConfig;
+    try {
+      mailConfig = loadMailConfig(userData);
+    } catch (err) {
+      return {
+        ok: false as const,
+        error: `Mailbox configuration is invalid: ${err instanceof Error ? err.message : String(err)}`,
+        logDir,
+      };
+    }
+
+    try {
+      const result = await runTurnSignup({
+        mail: mailConfig,
+        logDir,
+        attempts,
+        signal,
+        onProgress: (p) => {
+          sendTurnProgress(p.phase, p.message, p.attempt, p.maxAttempts);
+        },
+      });
+
+      const urls = result.urls.length > 0 ? result.urls : buildTurnUrls(METERED_RELAY);
+      if (signal.aborted) {
+        return { ok: false as const, error: "TURN setup was cancelled", cancelled: true, logDir };
+      }
+      sendTurnProgress(
+        "credentials",
+        "Credential created — waiting for Metered’s relay to propagate it…",
+        result.attempts,
+        result.attempts,
+      );
+      const proof = await waitForTurnCredential(urls, result.username, result.credential, {
+        shouldAbort: () => signal.aborted,
+        onAttempt: (attempt) => {
+          sendTurnProgress(
+            "credentials",
+            `Waiting for the relay to accept the credential… (${attempt})`,
+            result.attempts,
+            result.attempts,
+          );
+        },
+      });
+      if (signal.aborted) {
+        return { ok: false as const, error: "TURN setup was cancelled", cancelled: true, logDir };
+      }
+      if (!proof.ok) {
+        return {
+          ok: false as const,
+          error: `The account was created and the credential extracted, but the relay refused it from this network: ${proof.detail}`,
+          logDir,
+        };
+      }
+
+      try {
+        const tmp = turnJsonPath() + ".tmp";
+        fs.writeFileSync(tmp, JSON.stringify({ urls, username: result.username, credential: result.credential }), "utf8");
+        fs.renameSync(tmp, turnJsonPath());
+      } catch {
+        return { ok: false as const, error: "Could not save turn.json — check disk permissions", logDir };
+      }
+
+      console.log(`[turn] automatic setup complete — relay accepted via ${proof.via}`);
+      void syncTurnNow(app.getPath("userData"), identity.roomId, password);
+      return { ok: true as const, via: proof.via };
+    } catch (err) {
+      if (err instanceof TurnSignupError) {
+        return {
+          ok: false as const,
+          error: err.message,
+          cancelled: err.cancelled || signal.aborted,
+          logDir: err.logDir ?? logDir,
+        };
+      }
+      return {
+        ok: false as const,
+        error: err instanceof Error ? err.message : String(err),
+        cancelled: signal.aborted,
+        logDir,
+      };
+    }
+  }
+
+  ipcMain.handle("turn:auto-setup", async (_event, hint: unknown) => {
+    if (autoTurnJob) return { ok: false as const, error: "Automatic setup is already running" };
+    const rawAttempts = (hint as { attempts?: unknown } | null | undefined)?.attempts;
+    const attempts = typeof rawAttempts === "number" && Number.isFinite(rawAttempts) ? rawAttempts : 5;
+    const controller = new AbortController();
+    const job = { controller, promise: runAutoTurn(controller.signal, { attempts }) };
+    autoTurnJob = job;
+    try {
+      return await job.promise;
+    } finally {
+      if (autoTurnJob === job) autoTurnJob = null;
+    }
+  });
+
+  ipcMain.handle("turn:auto-cancel", () => {
+    if (!autoTurnJob) return { ok: false as const, error: "No automatic setup is running" };
+    autoTurnJob.controller.abort();
+    return { ok: true as const };
+  });
+
+  app.on("before-quit", () => { autoTurnJob?.controller.abort(); });
+
+  const turnStatus = () => {
+    try {
+      const raw = fs.readFileSync(turnJsonPath(), "utf8");
+      const j = JSON.parse(raw) as { urls?: unknown; username?: unknown; credential?: unknown };
+      const urls = Array.isArray(j?.urls) ? j.urls.filter((u): u is string => typeof u === "string") : [];
+      if (urls.length === 0 || !j?.username || !j?.credential) {
+        return { configured: false as const, reason: "turn.json missing credentials — redo the setup" };
+      }
+      return { configured: true as const, urls: urls.slice(0, 3), hint: "applies from the next connection" };
+    } catch {
+      return { configured: false as const };
+    }
+  };
+  /** One-time setup link for another device: carries THIS agent's TURN credential in the URL
+   *  fragment (never sent to any server) so the user can enable relay ICE on that browser/phone. */
+  ipcMain.handle("turn:web-link", () => {
+    try {
+      const raw = fs.readFileSync(turnJsonPath(), "utf8");
+      const j = JSON.parse(raw) as { urls?: unknown; username?: unknown; credential?: unknown };
+      const urls = Array.isArray(j?.urls) ? j.urls.filter((u): u is string => typeof u === "string" && u.length > 0) : [];
+      if (urls.length === 0) return { ok: false as const, error: "Remote access is not set up yet." };
+      const payload = Buffer.from(
+        JSON.stringify({ urls: urls.slice(0, 5), username: j.username, credential: j.credential }),
+        "utf8",
+      ).toString("base64url");
+      return { ok: true as const, link: `https://x5coder.github.io/remotex/#turn=${payload}` };
+    } catch {
+      return { ok: false as const, error: "Remote access is not set up yet." };
+    }
+  });
+
+  ipcMain.handle("turn:status", () => turnStatus());
+
+  ipcMain.handle("turn:setup", async (_e, key: unknown) => {
+    const secret = String(key ?? "").trim();
+    if (secret.length < 8 || secret.length > 128 || /\s/.test(secret)) {
+      return { ok: false as const, error: "That does not look like an API key — copy it again from the metered dashboard" };
+    }
+    // 1) mint a long-lived TURN credential for the remotex account
+    let mintUser = "";
+    let mintPass = "";
+    try {
+      const res = await fetch(`${METERED_API}/turn/credential?secretKey=${encodeURIComponent(secret)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label: "remotex" }),
+      });
+      const body = (await res.json().catch(() => null)) as { username?: string; password?: string; message?: string } | null;
+      if (!res.ok || !body?.username || !body?.password) {
+        const msg = body?.message ? String(body.message) : `HTTP ${res.status}`;
+        return { ok: false as const, error: `metered refused the key (${msg}) — copy the account-level API key from dashboard.metered.ca → API Keys (not the publishable or a credential-scoped key)` };
+      }
+      mintUser = String(body.username);
+      mintPass = String(body.password);
+    } catch {
+      return { ok: false as const, error: "Could not reach metered — check your internet connection" };
+    }
+
+    // 2) prove the credential actually works from this machine (real Allocate, every transport)
+    const urls = buildTurnUrls(METERED_RELAY);
+    const proof = await verifyTurn(urls, mintUser, mintPass, 3000);
+    if (!proof.ok) {
+      return { ok: false as const, error: `Key works, but the relay is refusing connections: ${proof.detail}` };
+    }
+
+    // 3) save atomically
+    try {
+      const tmp = turnJsonPath() + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify({ urls, username: mintUser, credential: mintPass }), "utf8");
+      fs.renameSync(tmp, turnJsonPath());
+    } catch {
+      return { ok: false as const, error: "Could not save turn.json — check disk permissions" };
+    }
+    console.log(`[turn] setup complete — relay accepted via ${proof.via}`);
+    return { ok: true as const, via: proof.via };
+  });
+
+  /** Mid-session TURN renewal — the hidden capture window calls this when ICE dies.
+   *  Fast path: the current credential still allocates → just re-arm (same password).
+   *  Slow path: relay refused/missing → re-create the credential (headless signup),
+   *  re-register the binding, then let the caller re-arm the room (same password). */
+  ipcMain.handle("turn:renew", async () => {
+    if (renewInFlight) return { ok: false as const, error: "Renewal already in progress" };
+    renewInFlight = true;
+    try {
+      const userData = app.getPath("userData");
+      const turnPath = path.join(userData, "turn.json");
+      try {
+        const j = JSON.parse(fs.readFileSync(turnPath, "utf8")) as { urls?: unknown; username?: unknown; credential?: unknown };
+        const urls = Array.isArray(j?.urls) ? j.urls.filter((u): u is string => typeof u === "string" && u.length > 0) : [];
+        if (urls.length > 0) {
+          const proof = await verifyTurn(urls, String(j.username ?? ""), String(j.credential ?? ""), 2000);
+          if (proof.ok) {
+            console.log("[turn-renew] relay still accepts the credential — re-arming only");
+            return { ok: true as const, renewed: false as const };
+          }
+          console.warn("[turn-renew] relay refused the credential — re-provisioning");
+        }
+      } catch {
+        console.warn("[turn-renew] turn.json unreadable — re-provisioning");
+      }
+      try { fs.renameSync(turnPath, turnPath + ".stale"); } catch { /* already missing */ }
+      const ac = new AbortController();
+      const result = await runAutoTurn(ac.signal, { attempts: 2 });
+      if (result.ok) {
+        console.log(`[turn-renew] credential renewed — relay accepted via ${result.via ?? "TURN"}`);
+        return { ok: true as const, renewed: true as const };
+      }
+      return { ok: false as const, error: "error" in result ? result.error : "Renewal failed" };
+    } catch (err) {
+      return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      renewInFlight = false;
+    }
+  });
+
+  /** The wizard may only open the metered console — nothing else. */
+  ipcMain.handle("shell:open-external", (_e, url: unknown) => {
+    const u = String(url ?? "");
+    if (!/^https:\/\/dashboard\.metered\.ca\//i.test(u)) return { ok: false as const };
+    void shell.openExternal(u);
+    return { ok: true as const };
+  });
+
 }
 
 function stopSession() {
@@ -404,6 +694,16 @@ void app.whenReady().then(() => {
   createHiddenWindow();
   startClipboardPolling();
   startLanServer(); // LAN-mode: serves web client + LAN signaling relay
+  startRenewClock();
+
+  // TURN sync with the Apps Script bridge (optional — only when turn-sync.json exists):
+  // verify the stored relay credential, then refresh the roomId↔credential binding.
+  // Runs in the background; launch never waits for it.
+  void (async () => {
+    const userData = app.getPath("userData");
+    await verifyAndHealTurnJson(userData);
+    await syncTurnNow(userData, identity.roomId, password);
+  })();
 });
 
 app.on("before-quit", () => {
@@ -411,6 +711,7 @@ app.on("before-quit", () => {
   try { const { ensureHostCursorVisible } = require("./cursor-visibility") as typeof import("./cursor-visibility"); ensureHostCursorVisible(); } catch { /* fine */ }
 });
 app.on("will-quit", () => {
+  if (renewTimer) { clearInterval(renewTimer); renewTimer = null; }
   stopPower();
   stopLanServer();
   try { const { ensureHostCursorVisible } = require("./cursor-visibility") as typeof import("./cursor-visibility"); ensureHostCursorVisible(); } catch { /* fine */ }

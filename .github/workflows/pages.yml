@@ -29,6 +29,30 @@ jobs:
           cache-dependency-path: |
             protocol/package-lock.json
             web/package-lock.json
+      - name: Write web/turn.json from GitHub Secrets (skipped when unset)
+        # Lets the deployed Pages client use TURN on restrictive networks without
+        # committing credentials to this public repo. Set repo Secrets:
+        #   TURN_URLS     — JSON array, e.g. ["turn:global.relay.metered.ca:80","turn:global.relay.metered.ca:443","turns:global.relay.metered.ca:443"]
+        #   TURN_USERNAME — credential username (optional for URL-only servers)
+        #   TURN_CREDENTIAL — credential password (optional)
+        working-directory: web
+        shell: bash
+        env:
+          TURN_URLS: ${{ secrets.TURN_URLS }}
+          TURN_USERNAME: ${{ secrets.TURN_USERNAME }}
+          TURN_CREDENTIAL: ${{ secrets.TURN_CREDENTIAL }}
+        run: |
+          node -e "
+            const raw = process.env.TURN_URLS || '';
+            let urls = [];
+            try { urls = JSON.parse(raw); } catch { urls = raw.split(',').map(s => s.trim()).filter(Boolean); }
+            if (!Array.isArray(urls) || urls.length === 0) { console.log('[turn] TURN_URLS not set or empty — skipping turn.json injection (STUN-only P2P)'); process.exit(0); }
+            const cfg = { urls: urls.slice(0, 5) };
+            if (process.env.TURN_USERNAME) cfg.username = process.env.TURN_USERNAME;
+            if (process.env.TURN_CREDENTIAL) cfg.credential = process.env.TURN_CREDENTIAL;
+            require('fs').writeFileSync('public/turn.json', JSON.stringify(cfg));
+            console.log('[turn] wrote web/turn.json with', cfg.urls.length, 'URL(s)');
+          "
       - working-directory: protocol
         run: npm ci && npm run build
       - working-directory: web
