@@ -1,5 +1,5 @@
-﻿/**
- * RemoteX â€” TURN Sync (Google Apps Script web app)
+/**
+ * RemoteX — TURN Sync (Google Apps Script web app)
  * =================================================
  * Lets the RemoteX website fetch the TURN credential of THIS device without
  * exposing it publicly and without any manual step per device.
@@ -11,17 +11,17 @@
  *      never sees the password itself, only the hash.
  *   2. The website calls  ?action=fetch  with the roomId + password the user
  *      just typed on the connect screen. On a match it gets back the TURN
- *      credential for THIS device â€” end-to-end encrypted traffic, the relay
+ *      credential for THIS device — end-to-end encrypted traffic, the relay
  *      only ever sees ciphertext.
  *
  * Storage
- *   Everything lives in Script Properties (PropertiesService) â€” "locally" in
+ *   Everything lives in Script Properties (PropertiesService) — "locally" in
  *   THIS script. No Google Sheet, no Drive file, no logging of secrets. A
  *   value is a tiny JSON blob: { salt, pwh, wkh, urls, username, credential,
  *   updatedAt } under key  "dev:<roomId>".
  *
  * Anti-abuse
- *   - fetch is rate-limited: 12 FAILED attempts per roomId per 6 h â†’ HTTP-ish
+ *   - fetch is rate-limited: 12 FAILED attempts per roomId per 6 h → HTTP-ish
  *     "too many attempts" (roomIds are 6 digits, so this is required).
  *   - register requires a per-install write key (generated once by the agent
  *     and stored next to turn.json), so knowing the 6-digit roomId is NOT
@@ -30,18 +30,18 @@
  *     in Google's servers, and the salt never leaves the script.
  *
  * Your question about metering, answered honestly
- *   There is NO way for anyone â€” not this script, not Google, not Metered â€”
+ *   There is NO way for anyone — not this script, not Google, not Metered —
  *   to know in advance that a Metered TURN credential is about to expire or
  *   how many of the 500 MB/month free quota it has used. Metered exposes no
  *   such endpoint; quota exhaustion only shows up as an Allocate refusal.
  *   The only source of truth is a real TURN Allocate (the agent already runs
  *   one at launch). When it fails, RemoteX re-creates the credential
- *   automatically and re-registers it here â€” that IS the auto-renew.
+ *   automatically and re-registers it here — that IS the auto-renew.
  *
  * Deploy
- *   1. script.google.com â†’ New project â†’ paste this file â†’ Save.
- *   2. Deploy â†’ New deployment â†’ type "Web app" â†’ Execute as: Me â†’
- *      Who has access: Anyone â†’ Deploy â†’ copy the /exec URL.
+ *   1. script.google.com → New project → paste this file → Save.
+ *   2. Deploy → New deployment → type "Web app" → Execute as: Me →
+ *      Who has access: Anyone → Deploy → copy the /exec URL.
  *   3. On the PC, create  %APPDATA%\remotex\turn-sync.json  with:
  *        { "url": "PASTE_THE_EXEC_URL_HERE" }
  *      (the write key is generated automatically on first run)
@@ -102,7 +102,7 @@ function doPost(e) {
 
 /* ----------------------------- actions ----------------------------- */
 
-/** Agent â†’ script: bind (roomId â†’ credential) with THIS install's write key. */
+/** Agent → script: bind (roomId → credential) with THIS install's write key. */
 function handleRegister_(body) {
   const err = validateCommon_(body);
   if (err) return err;
@@ -128,7 +128,7 @@ function handleRegister_(body) {
         return { ok: false, error: "binding owned by another install" };
       }
     } catch (e) {
-      // corrupt entry â€” overwrite is allowed with a valid write key
+      // corrupt entry — overwrite is allowed with a valid write key
     }
   }
   const record = {
@@ -145,7 +145,7 @@ function handleRegister_(body) {
   return { ok: true, registered: true };
 }
 
-/** Site â†’ script: exchange roomId + the CURRENT password for the credential. */
+/** Site → script: exchange roomId + the CURRENT password for the credential. */
 function handleFetch_(body) {
   const err = validateCommon_(body);
   if (err) return err;
@@ -168,7 +168,7 @@ function handleFetch_(body) {
   if (digest !== rec.pwh) {
     registerFailure_(body.roomId);
     if (failuresExceeded_(body.roomId)) {
-      return { ok: false, error: "too many attempts â€” try later" };
+      return { ok: false, error: "too many attempts — try later" };
     }
     return { ok: false, error: "wrong password" };
   }
@@ -181,7 +181,7 @@ function handleFetch_(body) {
   };
 }
 
-/** Agent â†’ script: drop the binding (e.g. regenerated Device ID). */
+/** Agent → script: drop the binding (e.g. regenerated Device ID). */
 function handlePurge_(body) {
   const err = validateCommon_(body);
   if (err) return err;

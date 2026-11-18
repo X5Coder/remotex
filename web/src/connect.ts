@@ -1,8 +1,8 @@
-﻿/**
- * Connect screen â€” Device ID + Password + Connect. Nothing else.
+/**
+ * Connect screen — Device ID + Password + Connect. Nothing else.
  * Device ID is remembered (it never changes). Password is never persisted.
  */
-const ROOM_KEY = "remotex.roomId.v2"; // v2: format changed (6 digits) â€” old entries are ignored
+const ROOM_KEY = "remotex.roomId.v2"; // v2: format changed (6 digits) — old entries are ignored
 
 export class ConnectController {
   private form = document.getElementById("connectForm") as HTMLFormElement;
@@ -15,7 +15,7 @@ export class ConnectController {
   constructor(private onConnect: (roomId: string, password: string) => void) {
     this.roomId.title = "6-digit Device ID shown in the RemoteX window";
     this.password.title = "6-letter password shown in the RemoteX window";
-    // the Device ID is remembered (it never changes) â€” but only if it matches the
+    // the Device ID is remembered (it never changes) — but only if it matches the
     // CURRENT 6-digit format; a stale value from before the format change is discarded
     try {
       const saved = localStorage.getItem(ROOM_KEY);
@@ -26,7 +26,7 @@ export class ConnectController {
       this.roomId.value = this.roomId.value.replace(/\D/g, "").slice(0, 6);
       this.syncButton();
     });
-    // passwords are 12 CAPITAL letters â€” force the keyboard into caps + strip everything else
+    // passwords are 12 CAPITAL letters — force the keyboard into caps + strip everything else
     this.password.addEventListener("input", () => {
       this.password.value = this.password.value.toUpperCase().replace(/[^A-Z]/g, "");
       this.syncButton();
@@ -45,11 +45,11 @@ export class ConnectController {
   show() { this.root.hidden = false; }
   hide() { this.root.hidden = true; }
 
-  /** busy = connecting; button label turns into "Connectingâ€¦" and a spinner joins it */
+  /** busy = connecting; button label turns into "Connecting…" and a spinner joins it */
   setBusy(busy: boolean) {
     this.connectBtn.disabled = busy || !this.roomId.value.trim() || !this.password.value.trim();
     this.connectBtn.classList.toggle("is-busy", busy);
-    this.label.textContent = busy ? "Connectingâ€¦" : "Connect";
+    this.label.textContent = busy ? "Connecting…" : "Connect";
     this.roomId.disabled = busy;
     this.password.disabled = busy;
   }
@@ -62,7 +62,7 @@ export class ConnectController {
   }
 
   private syncButton = () => {
-    // strict: exactly 6 digits + exactly 6 CAPS letters â€” anything else stays disabled
+    // strict: exactly 6 digits + exactly 6 CAPS letters — anything else stays disabled
     this.connectBtn.disabled = !/^\d{6}$/.test(this.roomId.value.trim()) || !/^[A-Z]{6}$/.test(this.password.value.trim());
   };
 }

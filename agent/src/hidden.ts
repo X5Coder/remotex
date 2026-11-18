@@ -1,5 +1,5 @@
-﻿/**
- * RemoteX Agent â€” hidden capture window (renderer, ESM bundled by esbuild).
+/**
+ * RemoteX Agent - hidden capture window (renderer, ESM bundled by esbuild).
  *
  * Responsibilities:
  *   1. Capture the primary screen (getDisplayMedia approved by the main-process
@@ -32,7 +32,7 @@ const BITRATE_LADDER = [20_000_000, 12_000_000, 8_000_000, 4_000_000];
 const FPS_FLOOR = 45;
 const RELAY_CAP_BITRATE = 2_000_000; // relayed path = tiny free quota - cap media so control packets never queue behind it
 const RELAY_URLS = [
-  "ws://127.0.0.1:4545", // our own LAN relay â€” single fixed port
+  "ws://127.0.0.1:4545", // our own LAN relay - single fixed port
   "wss://nos.lol",
   "wss://relay.snort.social",
   "wss://relay.primal.net",
@@ -94,7 +94,7 @@ class HiddenAgent {
       return;
     }
 
-    // 1) capture the primary screen at native resolution, up to 60 fps â€”
+    // 1) capture the primary screen at native resolution, up to 60 fps -
     //    reuse the live capture when re-arming (Terminate / password rotation)
     let stream: MediaStream;
     if (this.stream && this.stream.getVideoTracks().some((t) => t.readyState === "live")) {
@@ -103,14 +103,14 @@ class HiddenAgent {
     } else {
       try {
         stream = await navigator.mediaDevices.getDisplayMedia({
-          // NO width/height constraint â€” otherwise Chromium captures at DIP resolution and mismatches robotjs
-          // cursor: 'never' â€” the host's own arrow stays visible ON THE MACHINE ONLY; it is NOT baked
+          // NO width/height constraint - otherwise Chromium captures at DIP resolution and mismatches robotjs
+          // cursor: 'never' - the host's own arrow stays visible ON THE MACHINE ONLY; it is NOT baked
           // into the stream, so the overlay cursor in the phone UI is the ONLY cursor the user sees.
           video: { frameRate: { ideal: 60, max: 60 }, cursor: "never" } as unknown as MediaTrackConstraints,
           audio: false,
         });
       } catch (err) {
-        // elevated launches sometimes refuse the modern handler â€” fall back to the
+        // elevated launches sometimes refuse the modern handler - fall back to the
         // legacy (but still supported) chromeMediaSource path
         console.warn("[hidden] getDisplayMedia failed, trying legacy chromeMediaSource:", err);
         try {
@@ -134,7 +134,7 @@ class HiddenAgent {
     track?.addEventListener("ended", () => void reportStatus("Capture stream ended", "error"));
 
     // TURN relays: user's <userData>/turn.json wins outright; otherwise the
-    // built-in Open Relay (public static-auth, no account) â€” so remote
+    // built-in Open Relay (public static-auth, no account) - so remote
     // networks behind symmetric NATs connect out of the box. Merge rule in
     // @remotex/protocol (resolveTurnConfig). The relay never sees plaintext.
     let userTurnCfg: { urls: string[]; username?: string; credential?: string } | null = null;
@@ -144,7 +144,7 @@ class HiddenAgent {
     const turnConfig = await resolveTurnConfig(userTurnCfg);
     log(userTurnCfg ? "TURN: user turn.json" : "TURN: built-in Open Relay (public, no account)");
 
-    // 3) no need for capture dims â€” we normalize the cursor against the DISPLAY bounds, not the video,
+    // 3) no need for capture dims - we normalize the cursor against the DISPLAY bounds, not the video,
     //    so DPI scaling never breaks it (robotjs returns DIP; Electron bounds are DIP)
     try {
       const track = stream.getVideoTracks()[0];
@@ -153,13 +153,13 @@ class HiddenAgent {
       log(`capture cursor setting: ${settings.cursor ?? "unsupported"} (host arrow stays on the machine only)`);
     } catch { /* optional diagnostic */ }
 
-    // 2) join the room (encrypted SDP; maxUsers=2 â†’ single session)
+    // 2) join the room (encrypted SDP; maxUsers=2 -> single session)
     const room = joinRoom(
       { appId: APP_ID, password, maxUsers: 2, trickleIce: true, relayConfig: { urls: RELAY_URLS }, ...(turnConfig ? { turnConfig } : {}) },
       roomId
     );
     this.room = room;
-    void reportStatus("Ready â€” waiting for a connectionâ€¦", "waiting");
+    void reportStatus("Ready - waiting for a connection...", "waiting");
 
     this.fast = room.makeAction<Uint8Array>("fast");
     this.ctl = room.makeAction<string>("ctl");
@@ -184,27 +184,27 @@ class HiddenAgent {
     room.onPeerJoin(({ peerId }) => {
       if (this.peerId && this.peerId !== peerId) {
         // belt-and-braces: room-full already refuses at the handshake,
-        // but never let a second peer through EVEN SO â€” unless the current seat holder
+        // but never let a second peer through EVEN SO - unless the current seat holder
         // is provably dead (ICE disconnected/failed/closed), e.g. a crashed/frozen tab
         // that will never send a proper goodbye. In that case the new peer takes the seat.
         const stale = this.seatStale();
         if (stale) {
-          log("seat holder appears dead â€” handing the seat to", peerId);
+          log("seat holder appears dead - handing the seat to", peerId);
           void this.releaseSeat();
         } else {
           log("refusing second peer", peerId);
           try { this.ctl?.send(encodeCtl({ kind: "bye" }), { target: peerId } as never); } catch { /* ignore */ }
-          void bridge.invoke("agent:notify", { title: "RemoteX", body: "A second device tried to connect â€” refused." });
+          void bridge.invoke("agent:notify", { title: "RemoteX", body: "A second device tried to connect - refused." });
           return;
         }
       }
       this.peerId = peerId;
       log("peer joined", peerId);
       void this.openFastLine(peerId);
-      void room.addStream(stream); // idempotent â€” make sure the seat holder gets it
+      void room.addStream(stream); // idempotent - make sure the seat holder gets it
       void this.tuneSender(peerId);
       void this.sendHello();
-      void reportStatus("Connected â€” one device is in control", "connected");
+      void reportStatus("Connected - one device is in control", "connected");
       void bridge.invoke("agent:notify", { title: "RemoteX", body: "Someone connected to this computer." });
       this.startLoops();
     });
@@ -218,14 +218,14 @@ class HiddenAgent {
       // release any modifiers held for this session
       void bridge.invoke("input:inject", { kind: "reset" });
       void bridge.invoke("agent:notify", { title: "RemoteX", body: "Session ended." });
-      void reportStatus("Session ended â€” ready for a new connection", "waiting");
+      void reportStatus("Session ended - ready for a new connection", "waiting");
     });
 
     room.onError((err) => {
       const code = (err as { code?: string }).code ?? "unknown";
       console.error("[hidden] room error:", code);
       if (code === "decrypt-failed") void reportStatus("Wrong password from a client", "error");
-      else if (code === "relay-failed") void reportStatus("All signaling relays failed â€” check the network", "error");
+      else if (code === "relay-failed") void reportStatus("All signaling relays failed - check the network", "error");
       else if (code === "peer-connect-failed") void reportStatus("A direct connection could not be established", "error");
       else if (code === "handshake-failed") void reportStatus("Security handshake failed", "error");
     });
@@ -263,7 +263,7 @@ class HiddenAgent {
       const sender = pc?.getSenders().find((s) => s.track?.kind === "video");
       if (!sender) return;
       this.sender = sender;
-      // H.264 first â†’ hardware encoder on every platform
+      // H.264 first -> hardware encoder on every platform
       try {
         const caps = RTCRtpSender.getCapabilities("video");
         if (caps) {
@@ -280,7 +280,7 @@ class HiddenAgent {
       enc.maxBitrate = BITRATE_LADDER[this.bitrateRung]!;
       enc.maxFramerate = 60;
       enc.scaleResolutionDownBy = 1.0;
-      // keep resolution (text readability) and let fps adapt â€” measured on weak encoder HW;
+      // keep resolution (text readability) and let fps adapt - measured on weak encoder HW;
       // 'maintain-framerate' starved the stream to 384x216 and became unusable
       (params as RTCRtpParameters & { degradationPreference: string }).degradationPreference = "maintain-resolution";
       await sender.setParameters(params);
@@ -405,9 +405,9 @@ class HiddenAgent {
       if (!force && Math.abs(nx - this.lastCursor.x) < 0.0008 && Math.abs(ny - this.lastCursor.y) < 0.0008) return;
       this.lastCursor = { x: nx, y: ny };
       const seq = this.seq.next();
-      // LINE 1 â€” binary fast channel (7 bytes)
+      // LINE 1 - binary fast channel (7 bytes)
       this.fastSend(encodeFast({ kind: "cur", seq, x: nx, y: ny }));
-      // LINE 2 â€” identical beacon on the reliable JSON ctl channel, SAME seq;
+      // LINE 2 - identical beacon on the reliable JSON ctl channel, SAME seq;
       // the client dedups by seq, so whichever arrives first wins and the other is dropped.
       // If one line stalls, the other compensates.
       await this.ctl?.send(encodeCtl({ kind: "cur", x: nx, y: ny, seq }));
@@ -417,7 +417,7 @@ class HiddenAgent {
   }
 
   /**
-   * Link-quality monitor â€” measures the connection from WebRTC stats (frames per second,
+   * Link-quality monitor - measures the connection from WebRTC stats (frames per second,
    * packet-loss delta) and steps the bitrate ladder down/up to fit the real link.
    * Entirely internal; nothing is displayed.
    */
@@ -455,7 +455,7 @@ class HiddenAgent {
         break;
       }
       if (this.icePath === "relay") return; // media pinned to the relay budget - leave it pinned
-      // packet-loss DELTA over the last second â€” a spike means the link is saturated
+      // packet-loss DELTA over the last second - a spike means the link is saturated
       const lossDelta = Math.max(0, packetsLost - this.lastPacketsLost);
       this.lastPacketsLost = packetsLost;
 
@@ -468,14 +468,14 @@ class HiddenAgent {
         this.statsStrikes.lowFps = 0;
         this.statsStrikes.loss = 0;
         await this.applyBitrate();
-        log("bitrate ladder â†“ to rung", this.bitrateRung);
+        log("bitrate ladder down to rung", this.bitrateRung);
       } else if (fps >= FPS_FLOOR && lossDelta <= 5 && this.statsStrikes.lowFps === 0 && this.bitrateRung > 0) {
         this.statsStrikes.good++;
         if (this.statsStrikes.good >= 10) {
           this.statsStrikes.good = 0;
           this.bitrateRung--;
           await this.applyBitrate();
-          log("bitrate ladder â†‘ to rung", this.bitrateRung);
+          log("bitrate ladder up to rung", this.bitrateRung);
         }
       }
     } catch { /* stats not ready */ }
@@ -537,7 +537,7 @@ class HiddenAgent {
         await bridge.invoke("input:inject", { kind: "paste", text: msg.text });
         return;
       case "curping": {
-        // client watchdog: no cur beacon for a while â€” reply IMMEDIATELY on both lines (force, no dedup)
+        // client watchdog: no cur beacon for a while - reply IMMEDIATELY on both lines (force, no dedup)
         await this.publishCursor(true);
         return;
       }
@@ -556,7 +556,7 @@ class HiddenAgent {
 
   /**
    * Stop the current session and re-arm the room for the next device.
-   * The capture stream is REUSED (only the room/peer state is rebuilt) â€” stopping and
+   * The capture stream is REUSED (only the room/peer state is rebuilt) - stopping and
    * re-capturing the screen would cost seconds and flash a black frame for no benefit.
    * A new password can be passed to rotate credentials (old password stops working instantly).
    * graceful=false (mid-session TURN renewal): no "bye" - the client notices the drop and
@@ -582,7 +582,7 @@ class HiddenAgent {
     this.lastCursor = { x: -1, y: -1 };
     this.lastPacketsLost = 0;
     if (typeof newPassword === "string" && newPassword.length >= 6) this.launchPassword = newPassword;
-    // drop the stream only if the capture pipeline died â€” otherwise reuse it
+    // drop the stream only if the capture pipeline died - otherwise reuse it
     if (!this.stream || this.stream.getTracks().every((t) => t.readyState === "ended")) {
       this.stream = null;
     }
@@ -594,14 +594,14 @@ class HiddenAgent {
 const agent = new HiddenAgent();
 
 window.addEventListener("DOMContentLoaded", () => {
-  // user pressed "Terminate" in the agent window â€” drop the connected user, keep the room (same password)
+  // user pressed "Terminate" in the agent window - drop the connected user, keep the room (same password)
   bridge.on("session:stop", () => void agent.rearm());
-  // the window asked for a fresh password â€” rotate it and re-arm with the new one
+  // the window asked for a fresh password - rotate it and re-arm with the new one
   bridge.on("session:new-password", (pw) => {
     const password = typeof pw === "string" ? pw : "";
     if (password.length >= 6) void agent.rearm(password);
   });
-  // PC clipboard changed â†’ push to the web client (echo-guarded in main)
+  // PC clipboard changed -> push to the web client (echo-guarded in main)
   bridge.on("clipboard-changed", (text) => {
     if (typeof text !== "string" || !text) return;
     for (const frame of packCtl({ kind: "clipboard", text })) void agent.sendClipboardFrame(frame);
